@@ -1,0 +1,138 @@
+{% comment %}
+  Small Markdown renderer shared by the live session and the review page.
+  Exposes window.marked.parse(text). Input is escaped before any HTML is produced.
+{% endcomment %}
+<script>
+/* Inline markdown renderer — covers headers, code blocks, tables, blockquotes, lists, inline code, bold, italic, links, hr */
+(function() {
+  function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  function inlineMarkdown(text) {
+    // code spans first (protect from further processing)
+    const codeSpans = [];
+    text = text.replace(/`([^`\n]+?)`/g, (_, c) => {
+      codeSpans.push(`<code>${esc(c)}</code>`);
+      return '\x00CODE' + (codeSpans.length - 1) + '\x00';
+    });
+    // bold+italic, bold, italic
+    text = text.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+    text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    text = text.replace(/__(.+?)__/g, '<strong>$1</strong>');
+    text = text.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    text = text.replace(/_(.+?)_/g, '<em>$1</em>');
+    // links: web and mail addresses only, so an answer can never carry a script URL
+    text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (m, label, url) =>
+      /^(https?:\/\/|mailto:)/i.test(url.trim()) ? `<a href="${url.trim()}" target="_blank" rel="noopener noreferrer">${label}</a>` : label);
+    // restore code spans
+    text = text.replace(/\x00CODE(\d+)\x00/g, (_, i) => codeSpans[+i]);
+    return text;
+  }
+
+  function parseMarkdown(md) {
+    const lines = md.split('\n');
+    let html = '';
+    let i = 0;
+
+    while (i < lines.length) {
+      const line = lines[i];
+
+      // fenced code block
+      if (/^```/.test(line)) {
+        const lang = line.slice(3).trim();
+        let code = '';
+        i++;
+        while (i < lines.length && !/^```/.test(lines[i])) {
+          code += lines[i] + '\n';
+          i++;
+        }
+        html += `<pre><code class="language-${esc(lang)}">${esc(code.replace(/\n$/,''))}</code></pre>`;
+        i++;
+        continue;
+      }
+
+      // hr
+      if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) {
+        html += '<hr>';
+        i++;
+        continue;
+      }
+
+      // headings
+      const hm = line.match(/^(#{1,6})\s+(.*)/);
+      if (hm) {
+        const lvl = hm[1].length;
+        html += `<h${lvl}>${inlineMarkdown(esc(hm[2]))}</h${lvl}>`;
+        i++;
+        continue;
+      }
+
+      // blockquote
+      if (/^>\s?/.test(line)) {
+        let bq = '';
+        while (i < lines.length && /^>\s?/.test(lines[i])) {
+          bq += lines[i].replace(/^>\s?/,'') + '\n';
+          i++;
+        }
+        html += `<blockquote>${parseMarkdown(bq.trim())}</blockquote>`;
+        continue;
+      }
+
+      // table (must have | in line and next line is separator)
+      if (/\|/.test(line) && i + 1 < lines.length && /^\|?[\s\-:|]+\|/.test(lines[i+1])) {
+        const headers = line.trim().replace(/^\||\|$/g,'').split('|').map(h => h.trim());
+        i += 2; // skip header + separator
+        let tbody = '';
+        while (i < lines.length && /\|/.test(lines[i]) && lines[i].trim() !== '') {
+          const cells = lines[i].trim().replace(/^\||\|$/g,'').split('|').map(c => c.trim());
+          tbody += '<tr>' + cells.map(c => `<td>${inlineMarkdown(esc(c))}</td>`).join('') + '</tr>';
+          i++;
+        }
+        html += '<table><thead><tr>' + headers.map(h => `<th>${inlineMarkdown(esc(h))}</th>`).join('') + '</tr></thead><tbody>' + tbody + '</tbody></table>';
+        continue;
+      }
+
+      // unordered list
+      if (/^[\*\-\+]\s/.test(line)) {
+        let items = '';
+        while (i < lines.length && /^[\*\-\+]\s/.test(lines[i])) {
+          items += `<li>${inlineMarkdown(esc(lines[i].replace(/^[\*\-\+]\s/,'')))}</li>`;
+          i++;
+        }
+        html += `<ul>${items}</ul>`;
+        continue;
+      }
+
+      // ordered list
+      if (/^\d+\.\s/.test(line)) {
+        let items = '';
+        while (i < lines.length && /^\d+\.\s/.test(lines[i])) {
+          items += `<li>${inlineMarkdown(esc(lines[i].replace(/^\d+\.\s/,'')))}</li>`;
+          i++;
+        }
+        html += `<ol>${items}</ol>`;
+        continue;
+      }
+
+      // blank line
+      if (line.trim() === '') {
+        i++;
+        continue;
+      }
+
+      // paragraph — collect consecutive non-blank, non-special lines
+      let para = '';
+      while (i < lines.length && lines[i].trim() !== '' &&
+             !/^(#{1,6}\s|```|>\s?|[\*\-\+]\s|\d+\.\s)/.test(lines[i]) &&
+             !/^(-{3,}|\*{3,}|_{3,})$/.test(lines[i].trim()) &&
+             !/\|/.test(lines[i])) {
+        para += (para ? ' ' : '') + lines[i].trim();
+        i++;
+      }
+      if (para) html += `<p>${inlineMarkdown(esc(para))}</p>`;
+    }
+    return html;
+  }
+
+  window.marked = { parse: parseMarkdown };
+})();
+</script>

@@ -6,7 +6,7 @@
   display: flex; align-items: flex-start; justify-content: space-between;
   margin-bottom: 24px; flex-wrap: wrap; gap: 16px;
 }
-.detail-header .crumb { font-size: 13.5px; color: var(--text2); margin-bottom: 8px; display: inline-block; }
+.detail-header .crumb { font-size: 13.5px; color: var(--text2); margin-bottom: 4px; padding: 4px 0; display: inline-block; }
 .detail-header .crumb:hover { color: var(--text); }
 .detail-header h1 { font-size: 32px; font-weight: 800; margin-bottom: 8px; }
 .detail-header .meta { color: var(--text2); font-size: 14px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -26,6 +26,7 @@
   font-family: var(--display); font-size: 18px; font-weight: 700; letter-spacing: -0.02em; color: var(--text);
   margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
 }
+.section-title h2 { font: inherit; letter-spacing: inherit; }
 .section-title .count { font-family: var(--sans); font-size: 13px; font-weight: 500; color: var(--text3); margin-right: auto; }
 .context-text { font-size: 14px; color: var(--text2); white-space: pre-wrap; max-height: 200px; overflow-y: auto; }
 
@@ -45,7 +46,19 @@
 .ai-list { display: flex; flex-direction: column; gap: 14px; max-height: 620px; overflow-y: auto; padding-right: 6px; }
 .ai-entry { padding: 16px 18px; border-radius: 14px; background: var(--bg3); }
 .ai-q { font-size: 13.5px; font-weight: 600; color: var(--text2); margin-bottom: 10px; }
-.ai-a { font-size: 14.5px; line-height: 1.65; white-space: pre-wrap; color: var(--text); }
+.ai-a { font-size: 14.5px; line-height: 1.65; color: var(--text); overflow-wrap: anywhere; }
+.ai-a p { margin: 0 0 10px; }
+.ai-a > :last-child { margin-bottom: 0; }
+.ai-a ul, .ai-a ol { margin: 0 0 10px 20px; }
+.ai-a li { margin-bottom: 3px; }
+.ai-a h1, .ai-a h2, .ai-a h3 { font-size: 16px; margin: 14px 0 6px; }
+.ai-a strong { background: linear-gradient(transparent 60%, rgb(255 200 61 / 0.38) 60%); }
+.ai-a code { font-size: 12.5px; background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 1px 5px; }
+.ai-a pre { background: var(--bg); border: 1px solid var(--border2); border-radius: 10px; padding: 12px 14px; margin: 10px 0; overflow-x: auto; }
+.ai-a pre code { background: none; border: 0; padding: 0; }
+.ai-a table { border-collapse: collapse; margin: 10px 0; font-size: 13.5px; }
+.ai-a th, .ai-a td { border: 1px solid var(--border2); padding: 5px 9px; text-align: left; }
+.ai-a blockquote { border-left: 3px solid var(--border2); padding-left: 12px; color: var(--text2); margin: 0 0 10px; }
 .ai-entry-actions { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
 
 .empty { color: var(--text3); font-size: 14px; padding: 24px 0; }
@@ -54,7 +67,7 @@
 @media (max-width: 860px) {
   .detail-grid, .context-grid { grid-template-columns: minmax(0, 1fr); }
   .detail-header h1 { font-size: 26px; }
-  .stat-chip { flex: 1 1 50%; min-width: 0; padding: 14px 16px; }
+  .stat-chip { flex: 1 1 30%; min-width: 0; padding: 14px 16px; }
   .stat-chip + .stat-chip { border-left: 0; }
 }
 {% endblock %}
@@ -109,13 +122,13 @@
     <div class="context-grid">
       {% if session.job_description %}
       <div>
-        <div class="section-title">Job description</div>
+        <h2 class="section-title">Job description</h2>
         <div class="context-text">{{ session.job_description }}</div>
       </div>
       {% endif %}
       {% if session.extra_context %}
       <div>
-        <div class="section-title">Your background</div>
+        <h2 class="section-title">Your background</h2>
         <div class="context-text">{{ session.extra_context }}</div>
       </div>
       {% endif %}
@@ -126,7 +139,7 @@
   <div class="detail-grid">
     <div class="card">
       <div class="section-title">
-        Transcript <span class="count">{{ transcripts.count }} line{{ transcripts.count|pluralize }}</span>
+        <h2>Transcript</h2> <span class="count">{{ transcripts.count }} line{{ transcripts.count|pluralize }}</span>
         <button class="btn btn-secondary btn-xs" onclick="copyTranscript()">Copy</button>
       </div>
       {% if transcripts %}
@@ -148,7 +161,7 @@
 
     <div class="card">
       <div class="section-title">
-        Suggested answers <span class="count">{{ ai_messages.count }}</span>
+        <h2>Suggested answers</h2> <span class="count">{{ ai_messages.count }}</span>
         <button class="btn btn-secondary btn-xs" onclick="copyAllAI()">Copy</button>
       </div>
       {% if ai_messages %}
@@ -158,7 +171,7 @@
           {% if msg.trigger_text %}<div class="ai-q">{{ msg.trigger_text }}</div>{% endif %}
           <div class="ai-a" id="ai-{{ msg.id }}">{{ msg.content }}</div>
           <div class="ai-entry-actions">
-            <button class="btn btn-ghost btn-xs" onclick="copyText(document.getElementById('ai-{{ msg.id }}').textContent, 'Answer')">Copy</button>
+            <button class="btn btn-ghost btn-xs" onclick="copyText(document.getElementById('ai-{{ msg.id }}').dataset.plain || document.getElementById('ai-{{ msg.id }}').textContent, 'Answer')">Copy</button>
             <span style="font-size:12px;color:var(--text3);margin-left:auto">{{ msg.created_at|date:"g:i A" }}</span>
           </div>
         </div>
@@ -190,7 +203,14 @@
   </div>
 </div>
 
+{% include "interview/_markdown.html" %}
 <script>
+// Suggested answers are stored as Markdown. Keep the source for copying, show it formatted.
+document.querySelectorAll('.ai-a').forEach(el => {
+  el.dataset.plain = el.textContent;
+  if (window.marked) el.innerHTML = marked.parse(el.textContent);
+});
+
 // Word count
 const texts = document.querySelectorAll('.t-text');
 let words = 0;
@@ -220,11 +240,11 @@ function copyAllAI() {
   document.querySelectorAll('.ai-entry').forEach(e => {
     const q = e.querySelector('.ai-q');
     const a = e.querySelector('.ai-a');
-    if (q) lines.push('Q: ' + q.textContent.replace('Q: ', ''));
-    if (a) lines.push(a.textContent);
+    if (q) lines.push('Q: ' + q.textContent.trim());
+    if (a) lines.push(a.dataset.plain || a.textContent);
     lines.push('---');
   });
-  copyText(lines.join('\n\n'), 'All AI answers');
+  copyText(lines.join('\n\n'), 'All answers');
 }
 
 function exportSession(fmt) {

@@ -17,3 +17,5 @@ autoresearch*.md
 autoresearch*.sh
 autoresearch*.jsonl
 experiments/
+# session audio written by the server
+recordings/

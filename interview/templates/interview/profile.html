@@ -11,7 +11,7 @@
   display: flex; align-items: center; justify-content: center;
   font-family: var(--display); font-size: 28px; font-weight: 800;
 }
-.profile-meta-info h2 { font-size: 22px; font-weight: 800; color: var(--text); margin-bottom: 2px; overflow-wrap: anywhere; }
+.profile-meta-info h1 { font-size: 22px; font-weight: 800; color: var(--text); margin-bottom: 2px; overflow-wrap: anywhere; }
 .profile-meta-info p { color: var(--text2); font-size: 14px; margin: 0; overflow-wrap: anywhere; }
 .profile-plan-pill {
   display: inline-flex; align-items: center; gap: 5px; margin-top: 12px;
@@ -55,7 +55,7 @@
       <div class="profile-header-card">
         <div class="profile-avatar">{{ request.user.username|first|upper }}</div>
         <div class="profile-meta-info">
-          <h2>{{ profile.display_name|default:request.user.username }}</h2>
+          <h1>{{ profile.display_name|default:request.user.username }}</h1>
           <p>@{{ request.user.username }}</p>
           <p>{{ request.user.email|default:"No email added" }}</p>
           <span class="profile-plan-pill">{{ profile.get_plan_display|default:"Free" }} plan</span>
@@ -63,7 +63,7 @@
       </div>
 
       <div class="profile-header-card">
-        <div class="profile-section-title">Activity</div>
+        <h2 class="profile-section-title">Activity</h2>
         <div class="stats-grid">
           <div><div class="stat-num">{{ session_count }}</div><div class="stat-label">Sessions</div></div>
           <div><div class="stat-num">{{ transcript_count }}</div><div class="stat-label">Lines</div></div>
@@ -79,7 +79,7 @@
 
     <!-- Desktop overlay token -->
     <div class="profile-section">
-      <div class="profile-section-title">Desktop overlay token</div>
+      <h2 class="profile-section-title">Desktop overlay token</h2>
       <div class="token-intro">
         Paste this into the overlay under <strong>Settings</strong>, in the <strong>Extension Token</strong> field. It signs the overlay in and lets it find your live session.
       </div>
@@ -102,7 +102,7 @@
       {% csrf_token %}
 
       <div class="profile-section">
-        <div class="profile-section-title">Account</div>
+        <h2 class="profile-section-title">Account</h2>
         <div class="form-half">
           <div class="form-group">
             <label for="{{ form.first_name.id_for_label }}">First name</label>
@@ -120,7 +120,7 @@
       </div>
 
       <div class="profile-section">
-        <div class="profile-section-title">About you</div>
+        <h2 class="profile-section-title">About you</h2>
         <div class="form-group">
           <label for="{{ form.display_name.id_for_label }}">Display name</label>
           {{ form.display_name }}
@@ -139,7 +139,7 @@
       </div>
 
       <div class="profile-section">
-        <div class="profile-section-title">Appearance</div>
+        <h2 class="profile-section-title">Appearance</h2>
         <div class="form-group">
           <label for="{{ form.theme.id_for_label }}">Theme</label>
           {{ form.theme }}
@@ -148,7 +148,7 @@
       </div>
 
       <div class="profile-section">
-        <div class="profile-section-title">Your background</div>
+        <h2 class="profile-section-title">Your background</h2>
         <div class="form-group">
           <label for="{{ form.background.id_for_label }}">Resume or skills summary</label>
           {{ form.background }}

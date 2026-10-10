@@ -125,6 +125,9 @@ interview/                      The app
     _public_nav.html            Navigation for signed-out pages
     _public_footer.html         Footer for signed-out pages
     _theme_toggle.html          Light and dark switch
+    _icon.html                  Line icons, by name
+    _markdown.html              Markdown renderer for suggested answers
+    _notice.html                Layout for one-message pages (billing, errors)
     base.html                   App shell for signed-in pages
     auth_base.html              Layout for sign in and sign up
     landing.html, pricing.html  Signed-out pages
@@ -173,14 +176,14 @@ includes it. Change a token there and it changes everywhere, in both themes.
 | `--bg3` | `#252338` | `#EEECF6` | Insets, hover states, chat bubbles |
 | `--text` | `#F3F1FB` | `#17152E` | Body text |
 | `--text2` | `#B9B5D3` | `#45415F` | Secondary text |
-| `--text3` | `#928EB0` | `#69658A` | Captions and hints |
+| `--text3` | `#9C98B8` | `#69658A` | Captions and hints |
 | `--accent` | `#FFC83D` | `#4636C9` | Links and focus rings |
-| `--accent2` | `#A9A4FF` | `#A15C00` | Secondary accent |
-| `--green` | `#4ADE9B` | `#0F7B4F` | Live, success |
-| `--red` | `#FF7A7A` | `#C4283C` | Destructive actions, errors |
-| `--yellow` | `#FFA552` | `#A65A00` | Warnings (orange, so it is never confused with the brand yellow) |
+| `--accent2` | `#A9A4FF` | `#7F4A00` | Secondary accent |
+| `--green` | `#4ADE9B` | `#0A6640` | Live, success |
+| `--red` | `#FF7A7A` | `#AD1F33` | Destructive actions, errors |
+| `--yellow` | `#FFA552` | `#9A3D00` | Warnings (orange, so it is never confused with the brand yellow) |
 
-Text colours meet WCAG AA (4.5:1) on the surfaces they are used on. Ink on brand yellow is 11.5:1.
+Text colours meet WCAG AA (4.5:1) on the surfaces they are used on, including status colours on their own tinted badges. Ink on brand yellow is 11.5:1. No text is set smaller than 12px.
 
 Colours with transparency are written as `rgb(var(--accent-rgb) / 0.2)`, so they follow the theme
 too. Avoid hard-coded hex values in page templates.
@@ -215,10 +218,35 @@ In templates, use the partial instead of an image:
 
 On a yellow surface, add `class="on-brand"` to the container and the mark inverts.
 
+### Icons
+
+Use the line icons in `_icon.html` instead of emoji for controls. They take their size from the font
+and their colour from the text:
+
+```django
+{% include "interview/_icon.html" with name="search" %}
+```
+
+Give an icon-only button an `aria-label`.
+
+### Accessibility checks
+
+Every page has one `h1`, a `main` landmark and a skip link. Every control has a name, a visible
+keyboard focus and a hit area of at least 24 by 24 pixels. Keep it that way when you add pages.
+
 ### Themes
 
 Dark and light are both first class. The theme is resolved before first paint, in this order: the
 choice saved in the browser, the account setting, then the operating system preference.
+
+### References
+
+The page structure borrows patterns that are common across this product category (Parakeet AI,
+Final Round AI, LockedIn AI, HuddleMate, AceRound AI, ExtraBrain and Cluely): a live example in the
+hero, a works-with strip, a before, during and after walkthrough, a download block for the desktop
+app, role chips, and a short list of first questions. The names, logos, colours and copy are
+HappyHelper's own. Two things those sites lean on were left out on purpose: user counts, ratings and
+company logos that cannot be backed up, and "undetectable" as a headline.
 
 ## Tests
 
@@ -246,6 +274,11 @@ These are in the code today. They are listed here so nobody is surprised.
 - **A shared API token with a public default.** `EXT_TOKEN` defaults to `pkai-local-dev`, and
   `render.yaml` sets the same value. Any request carrying it passes the API's token check. Set a
   private value in production, or remove the shared token and rely on per-user tokens.
+- **Audio recordings outlive their session.** The web app uploads audio chunks, and the server
+  writes them to `recordings/<session id>/`. Deleting a session does not delete that folder.
+- **The only published release still carries the old product name.** The dashboard and landing page
+  look up the newest installers at runtime, so the buttons work, but the files are called
+  `ParakeetAI-1.1.0`.
 - **The release workflow points at an old folder.** `.github/workflows/electron-release.yml` uses
   `parakeetai-electron-overlay/`. The folder is now `happyhelper-electron-overlay/`, so the workflow
   fails until that is updated. Its release notes also use the old product name.

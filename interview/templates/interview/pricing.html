@@ -100,7 +100,7 @@
 
 {% include "interview/_public_nav.html" with page="pricing" %}
 
-<div class="page">
+<main id="main" class="page">
   <div class="page-header">
         <h1 class="page-title">Simple, transparent pricing</h1>
     <p class="page-sub">Start free. Upgrade when you need more. Cancel anytime — no hidden fees.</p>
@@ -252,13 +252,13 @@
       <button class="faq-q" onclick="toggleFaq(this)">
         Is my audio and transcript data private? <span class="arrow" aria-hidden="true">+</span>
       </button>
-      <div class="faq-a">Yes. Transcripts are stored only in your own database. Audio is processed through Groq Whisper in transit but never persisted. We have no access to your session content. Self-hosting is also supported — clone the repo and run everything on your own infrastructure.</div>
+      <div class="faq-a">Audio from a session is uploaded to the HappyHelper server, stored with that session, and sent to Groq to be transcribed. Transcripts and suggested answers are saved to your account, where you can export them. If you would rather keep everything on your own machines, you can host HappyHelper yourself.</div>
     </div>
     <div class="faq-item">
       <button class="faq-q" onclick="toggleFaq(this)">
         What happens when I hit the free session limit? <span class="arrow" aria-hidden="true">+</span>
       </button>
-      <div class="faq-a">Sessions older than 7 days are archived and read-only. You can still view past sessions, but creating new ones requires upgrading to Pro. We'll send a reminder email before you hit the limit.</div>
+      <div class="faq-a">You can still open and review the sessions you have. To start a new one, upgrade to Pro, or delete a session you no longer need to free up a slot.</div>
     </div>
     <div class="faq-item">
       <button class="faq-q" onclick="toggleFaq(this)">
@@ -283,7 +283,7 @@
       <a href="/login/" class="btn btn-secondary btn-lg">Sign in</a>
     </div>
   </div>
-</div>
+</main>
 
 {% include "interview/_public_footer.html" %}
 

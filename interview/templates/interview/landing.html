@@ -65,33 +65,63 @@
     }
     @keyframes rise { to { opacity: 1; transform: none; } }
 
-    /* ── Steps (a real sequence, so it is numbered) ── */
-    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; border-top: 1px solid var(--border2); counter-reset: step; }
-    .step { padding: 28px 28px 0 0; counter-increment: step; }
-    .step + .step { padding-left: 28px; border-left: 1px solid var(--border); }
-    .step::before {
-      content: counter(step); display: block;
-      font-family: var(--display); font-size: 44px; font-weight: 800; line-height: 1; letter-spacing: -0.04em;
-      color: var(--brand); margin-bottom: 14px;
-    }
-    [data-theme="light"] .step::before { color: var(--ink); background: var(--brand); width: 52px; height: 52px; border-radius: 14px; font-size: 28px; display: flex; align-items: center; justify-content: center; }
-    .step h3 { font-size: 21px; font-weight: 700; margin-bottom: 8px; }
-    .step p { color: var(--text2); font-size: 15.5px; }
-    .step kbd { font-size: 12.5px; background: var(--bg3); border: 1px solid var(--border2); border-radius: 6px; padding: 1px 6px; }
+    /* ── Works-with strip ── */
+    .works-with { margin-top: 56px; padding: 18px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px 28px; flex-wrap: wrap; color: var(--text2); font-size: 15px; }
+    .works-with strong { color: var(--text3); font-weight: 600; font-size: 14px; }
+    .works-with span { font-weight: 600; color: var(--text); }
 
-    /* ── Features: one lead feature, the rest as a plain list ── */
-    .features { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 48px; align-items: start; }
-    .lead-feature { background: var(--bg2); border: 1px solid var(--border); border-radius: 22px; padding: 32px; }
-    .lead-feature h3 { font-size: 26px; font-weight: 800; margin-bottom: 10px; }
-    .lead-feature p { color: var(--text2); }
-    .context-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
+    /* ── Before, during, after: a real sequence, shown as a timeline ── */
+    .phases { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; border-top: 1px solid var(--border2); }
+    .phase { padding: 28px 28px 0 0; position: relative; }
+    .phase + .phase { padding-left: 28px; border-left: 1px solid var(--border); }
+    .phase::before { content: ''; position: absolute; top: -5px; left: 0; width: 9px; height: 9px; border-radius: 50%; background: var(--brand); }
+    .phase + .phase::before { left: 28px; }
+    .phase-when { font-family: var(--display); font-size: 15px; font-weight: 700; color: var(--accent); margin-bottom: 10px; }
+    .phase h3 { font-size: 24px; font-weight: 800; margin-bottom: 8px; }
+    .phase > p { color: var(--text2); font-size: 16px; }
+    .phase ul { list-style: none; margin-top: 16px; display: grid; gap: 8px; }
+    .phase li { font-size: 15px; color: var(--text); padding-left: 22px; position: relative; }
+    .phase li::before { content: ''; position: absolute; left: 0; top: 0.62em; width: 10px; height: 2px; border-radius: 2px; background: var(--text3); }
+    kbd { font-family: var(--mono); font-size: 12.5px; background: var(--bg3); border: 1px solid var(--border2); border-radius: 6px; padding: 1px 6px; }
+
+    /* ── Answers: where they come from, and the shape they take ── */
+    .answers { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: stretch; }
+    .panel { background: var(--bg2); border: 1px solid var(--border); border-radius: 22px; padding: 32px; display: flex; flex-direction: column; }
+    .panel h3 { font-size: 26px; font-weight: 800; margin-bottom: 10px; }
+    .panel > p { color: var(--text2); }
+    .context-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 22px; }
     .context-chips span { font-size: 13.5px; font-weight: 600; padding: 6px 12px; border-radius: 999px; background: var(--bg3); color: var(--text); border: 1px solid var(--border); }
     .context-arrow { margin: 18px 0 12px; color: var(--text3); font-size: 14px; }
-    .context-out { font-size: 16px; line-height: 1.6; color: var(--text); }
+    .context-out { font-size: 20px; line-height: 1.55; color: var(--text); font-weight: 500; }
 
-    .feature-list { list-style: none; display: grid; grid-template-columns: 1fr 1fr; gap: 28px 32px; }
-    .feature-list h3 { font-family: var(--sans); font-size: 16.5px; font-weight: 700; letter-spacing: -0.01em; margin-bottom: 4px; }
-    .feature-list p { color: var(--text2); font-size: 15px; }
+    .shape-tabs { display: inline-flex; gap: 2px; background: var(--bg3); border-radius: 12px; padding: 4px; margin: 20px 0 16px; align-self: flex-start; flex-wrap: wrap; }
+    .shape-tab { padding: 7px 14px; border-radius: 9px; border: 0; background: transparent; color: var(--text2); font: 600 14px var(--sans); cursor: pointer; }
+    .shape-tab[aria-selected="true"] { background: var(--bg2); color: var(--text); box-shadow: var(--shadow-sm); }
+    .shape-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .shape-out { background: var(--brand); color: var(--on-brand); border-radius: 16px; padding: 18px 20px; font-size: 15px; line-height: 1.55; flex: 1; }
+    .shape-out[hidden] { display: none; }
+    .shape-out b { font-weight: 700; }
+    .shape-out p + p { margin-top: 6px; }
+    .shape-out ul, .shape-out ol { margin-left: 20px; display: grid; gap: 4px; }
+
+    /* ── Desktop overlay ── */
+    .overlay { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 48px; align-items: center; }
+    .overlay h2 { font-size: clamp(28px, 4vw, 42px); font-weight: 800; }
+    .overlay-copy p { color: var(--text2); font-size: 17px; margin: 12px 0 24px; max-width: 48ch; }
+    .dl-row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .dl-row .btn { flex-direction: column; align-items: flex-start; gap: 0; padding: 10px 18px; }
+    .dl-row small { font-size: 12.5px; font-weight: 500; opacity: 0.75; }
+    .overlay-note { margin-top: 14px; font-size: 14px; color: var(--text3); }
+    .screens { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .screen-label { font-size: 14px; font-weight: 600; color: var(--text2); margin-bottom: 8px; }
+    .screen { position: relative; aspect-ratio: 4 / 3; background: var(--bg3); border: 1px solid var(--border2); border-radius: 16px; padding: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .tile { background: var(--bg4); border-radius: 10px; position: relative; }
+    .tile::after { content: ''; position: absolute; left: 50%; top: 50%; width: 30%; aspect-ratio: 1; border-radius: 50%; background: var(--bg3); transform: translate(-50%, -50%); }
+    .mini-overlay { position: absolute; right: 8%; top: 12%; width: 46%; background: var(--bg2); border: 1px solid var(--border2); border-radius: 12px; padding: 10px; box-shadow: var(--shadow-lg); display: grid; gap: 6px; }
+    .mini-overlay i { display: block; height: 6px; border-radius: 3px; background: var(--border3); }
+    .mini-overlay i:first-child { width: 42%; background: var(--brand); }
+    .mini-overlay i:nth-child(3) { width: 82%; }
+    .mini-overlay i:nth-child(4) { width: 64%; }
 
     /* ── Who it is for ── */
     .uses { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
@@ -100,12 +130,14 @@
     .use p { color: var(--text2); font-size: 15.5px; }
     .use:first-child { background: var(--brand); border-color: var(--brand); }
     .use:first-child h3, .use:first-child p { color: var(--on-brand); }
+    .roles { margin-top: 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 15px; color: var(--text2); }
+    .roles span { font-size: 14px; font-weight: 600; padding: 6px 13px; border-radius: 999px; border: 1px solid var(--border2); color: var(--text); }
 
     /* ── Plans ── */
     .plans { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
     .plan { background: var(--bg2); border: 1px solid var(--border); border-radius: 20px; padding: 26px; display: flex; flex-direction: column; }
     .plan.popular { border-color: var(--brand); box-shadow: inset 0 3px 0 var(--brand); }
-    .plan-name { font-size: 15px; font-weight: 700; color: var(--text2); }
+    .plan-name { font-family: var(--sans); font-size: 15px; font-weight: 700; color: var(--text2); letter-spacing: 0; }
     .plan-price { font-family: var(--display); font-size: 44px; font-weight: 800; letter-spacing: -0.04em; line-height: 1.1; margin: 6px 0 6px; font-variant-numeric: tabular-nums; }
     .plan-price small { font-family: var(--sans); font-size: 15px; font-weight: 500; color: var(--text3); letter-spacing: 0; }
     .plan-desc { color: var(--text2); font-size: 15px; margin-bottom: 22px; flex: 1; }
@@ -113,34 +145,48 @@
     .plans-more { margin-top: 20px; font-size: 15px; color: var(--text2); }
     .plans-more a { font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
 
+    /* ── Questions ── */
+    .faq { max-width: 780px; }
+    .faq details { border-bottom: 1px solid var(--border); }
+    .faq summary { list-style: none; cursor: pointer; padding: 18px 0; font-size: 17px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+    .faq summary::-webkit-details-marker { display: none; }
+    .faq summary::after { content: '+'; font-size: 24px; font-weight: 400; line-height: 1; color: var(--text3); transition: transform 0.2s; flex-shrink: 0; }
+    .faq details[open] summary::after { transform: rotate(45deg); }
+    .faq details p { color: var(--text2); padding: 0 0 20px; max-width: 66ch; }
+    .faq details a { text-decoration: underline; text-underline-offset: 3px; }
+
     /* ── Closing band ── */
     .closing { margin-top: 96px; background: var(--bg3); border-radius: 28px; padding: 56px 40px; display: flex; align-items: center; justify-content: space-between; gap: 32px; flex-wrap: wrap; }
     .closing h2 { font-size: clamp(28px, 4vw, 44px); font-weight: 800; max-width: 16ch; }
     .closing p { color: var(--text2); margin-top: 10px; max-width: 44ch; }
 
     @media (max-width: 960px) {
-      .hero-grid, .features { grid-template-columns: minmax(0, 1fr); gap: 40px; }
-      .steps, .uses, .plans { grid-template-columns: 1fr; }
-      .step, .step + .step { padding: 24px 0; border-left: 0; }
-      .step + .step { border-top: 1px solid var(--border); }
+      .hero-grid, .answers, .overlay { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+      .answers { gap: 16px; }
+      .phases, .uses, .plans { grid-template-columns: 1fr; }
+      .phases { border-top: 0; border-left: 1px solid var(--border2); }
+      .phase, .phase + .phase { padding: 0 0 32px 24px; border-left: 0; }
+      .phase::before, .phase + .phase::before { left: -5px; top: 6px; }
+      .phase:last-child { padding-bottom: 0; }
     }
     @media (max-width: 720px) {
       .wrap { padding: 0 16px; }
       .hero { padding-top: 40px; }
       .section { padding-top: 72px; }
       .hero-sub { font-size: 17px; }
-      .feature-list { grid-template-columns: 1fr; gap: 22px; }
       .closing { padding: 36px 22px; border-radius: 22px; margin-top: 72px; }
       .hero-ctas .btn { flex: 1 1 100%; }
-      .lead-feature { padding: 24px; }
+      .panel { padding: 24px; }
+      .works-with { margin-top: 40px; }
     }
+    @media (max-width: 480px) { .screens { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
 
 {% include "interview/_public_nav.html" %}
 
-<main>
+<main id="main">
   <!-- Hero -->
   <section class="hero">
     <div class="wrap hero-grid">
@@ -154,7 +200,7 @@
         <p class="hero-note">Free to start. No card needed.</p>
       </div>
 
-      <div class="demo" aria-label="Example of a live session">
+      <div class="demo" role="img" aria-label="Example of a live session: the interviewer asks how you kept four teams aligned, and HappyHelper suggests leading with the weekly cutover review.">
         <div class="demo-bar">
           <span><strong>Staff Platform Engineer</strong>, Northwind</span>
           <span class="demo-live">Live</span>
@@ -187,40 +233,67 @@
         </div>
       </div>
     </div>
+
+    <div class="wrap">
+      <div class="works-with">
+        <strong>Works alongside</strong>
+        <span>Zoom</span><span>Google Meet</span><span>Microsoft Teams</span>
+        <strong>in your browser, or in the desktop overlay for Mac and Windows</strong>
+      </div>
+    </div>
   </section>
 
-  <!-- How it works -->
+  <!-- How it works: before, during, after -->
   <section class="section" id="how-it-works">
     <div class="wrap">
       <div class="section-head">
-        <h2>Three steps, then it stays out of your way</h2>
+        <h2>With you before, during and after</h2>
+        <p>Most of the work happens before the call. During it, HappyHelper stays quiet until you need it.</p>
       </div>
-      <div class="steps">
-        <div class="step">
+      <div class="phases">
+        <div class="phase">
+          <div class="phase-when">Before</div>
           <h3>Set the scene</h3>
-          <p>Add the role, the company and your background. Paste the job description if you have one. Suggestions are drawn from this, so they sound like you.</p>
+          <p>Add the role, the company and your background. Suggestions are drawn from this, so they sound like you.</p>
+          <ul>
+            <li>Paste the job description or the agenda</li>
+            <li>Generate likely questions and talking points</li>
+            <li>Start from an example for your role</li>
+          </ul>
         </div>
-        <div class="step">
-          <h3>Start the session</h3>
-          <p>HappyHelper transcribes the conversation as it happens and labels who is speaking. Nothing to type, no notes to take.</p>
-        </div>
-        <div class="step">
+        <div class="phase">
+          <div class="phase-when">During</div>
           <h3>Ask for a cue</h3>
-          <p>Press <kbd>Ctrl</kbd> <kbd>Enter</kbd> when a question lands, or let Auto AI answer as questions come in. The suggestion appears beside the transcript.</p>
+          <p>Press <kbd>Ctrl</kbd> <kbd>Enter</kbd> when a question lands, or let Auto answer respond as questions come in.</p>
+          <ul>
+            <li>Live transcript with a label for each speaker</li>
+            <li>The suggestion appears beside the transcript</li>
+            <li>Select any lines and ask about just those</li>
+          </ul>
+        </div>
+        <div class="phase">
+          <div class="phase-when">After</div>
+          <h3>Review and share</h3>
+          <p>Every session keeps its transcript and the answers it suggested, ready to read back.</p>
+          <ul>
+            <li>Meeting summary with decisions and action items</li>
+            <li>Export to text or Markdown</li>
+            <li>Notes you added along the way</li>
+          </ul>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Features -->
+  <!-- Answers -->
   <section class="section" id="features">
     <div class="wrap">
       <div class="section-head">
         <h2>Built for the moment you blank</h2>
-        <p>Everything here exists to get a useful sentence in front of you within a second or two of the question.</p>
+        <p>Everything here exists to get a useful sentence in front of you while the question is still in the air.</p>
       </div>
-      <div class="features">
-        <div class="lead-feature">
+      <div class="answers">
+        <div class="panel">
           <h3>Answers that sound like you</h3>
           <p>Each suggestion is assembled from what you gave it, so you get your own projects and numbers back, in order.</p>
           <div class="context-chips">
@@ -229,32 +302,68 @@
           <div class="context-arrow">becomes</div>
           <p class="context-out"><span class="hh-mark-text">“We cut the release cycle from two weeks to two days. I owned the pipeline redesign.”</span></p>
         </div>
-        <ul class="feature-list">
-          <li>
-            <h3>Live transcription</h3>
-            <p>Speech to text through Groq Whisper, fast enough to keep up with the conversation.</p>
-          </li>
-          <li>
-            <h3>Conversation plan</h3>
-            <p>Before the call, generate likely questions, talking points and a closing.</p>
-          </li>
-          <li>
-            <h3>Meeting mode</h3>
-            <p>Tracks who said what across several speakers and writes the summary afterwards.</p>
-          </li>
-          <li>
-            <h3>Answer templates</h3>
-            <p>Choose the shape of the answer: STAR, bullet points, step by step, or your own prompt.</p>
-          </li>
-          <li>
-            <h3>Desktop overlay</h3>
-            <p>A small always-on-top window for Mac and Windows that stays out of screen shares.</p>
-          </li>
-          <li>
-            <h3>Review and export</h3>
-            <p>Every session keeps its transcript and answers. Export to text or Markdown, or delete it.</p>
-          </li>
-        </ul>
+
+        <div class="panel">
+          <h3>In the shape you want</h3>
+          <p>Pick a template and the same answer comes back structured for the question. Add your own in Templates.</p>
+          <div class="shape-tabs" role="tablist" aria-label="Answer template">
+            <button type="button" class="shape-tab" role="tab" id="tab-star" aria-controls="shape-star" aria-selected="true">STAR</button>
+            <button type="button" class="shape-tab" role="tab" id="tab-bullets" aria-controls="shape-bullets" aria-selected="false" tabindex="-1">Bullet points</button>
+            <button type="button" class="shape-tab" role="tab" id="tab-steps" aria-controls="shape-steps" aria-selected="false" tabindex="-1">Step by step</button>
+          </div>
+          <div class="shape-out" role="tabpanel" id="shape-star" aria-labelledby="tab-star">
+            <p><b>Situation.</b> Forty services to move off a legacy bus in one quarter, across four teams.</p>
+            <p><b>Task.</b> Keep every team on one plan.</p>
+            <p><b>Action.</b> A weekly cutover review, one shared burndown and a single rollback rule.</p>
+            <p><b>Result.</b> All 40 services moved, with zero Sev-1 incidents.</p>
+          </div>
+          <div class="shape-out" role="tabpanel" id="shape-bullets" aria-labelledby="tab-bullets" hidden>
+            <ul>
+              <li>Weekly cutover review with all four teams</li>
+              <li>One shared burndown, visible to everyone</li>
+              <li>A single rollback rule that every team signed</li>
+              <li>40 services moved, zero Sev-1 incidents</li>
+            </ul>
+          </div>
+          <div class="shape-out" role="tabpanel" id="shape-steps" aria-labelledby="tab-steps" hidden>
+            <ol>
+              <li>Agree one rollback rule before any service moves</li>
+              <li>Put every team on the same burndown</li>
+              <li>Review each cutover together, once a week</li>
+              <li>Close with the result: 40 services, zero Sev-1 incidents</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Desktop overlay -->
+  <section class="section" id="overlay">
+    <div class="wrap overlay">
+      <div class="overlay-copy">
+        <h2>A small window that stays beside your call</h2>
+        <p>The desktop overlay floats above Zoom, Meet or Teams, so the suggestion is next to the faces you are talking to. It is left out of screen shares and recordings.</p>
+        <div class="dl-row">
+          <a href="https://github.com/sandhoter2/happyhelper/releases/latest" class="btn btn-secondary" id="dlMac">Download for Mac<small>Apple silicon and Intel</small></a>
+          <a href="https://github.com/sandhoter2/happyhelper/releases/latest" class="btn btn-secondary" id="dlWin">Download for Windows<small>10 and 11</small></a>
+        </div>
+        <p class="overlay-note"><kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>Space</kbd> shows or hides it. You sign in with your HappyHelper account.</p>
+      </div>
+      <div class="screens" aria-hidden="true">
+        <div>
+          <div class="screen-label">Your screen</div>
+          <div class="screen">
+            <div class="tile"></div><div class="tile"></div><div class="tile"></div><div class="tile"></div>
+            <div class="mini-overlay"><i></i><i></i><i></i><i></i></div>
+          </div>
+        </div>
+        <div>
+          <div class="screen-label">What a screen share shows</div>
+          <div class="screen">
+            <div class="tile"></div><div class="tile"></div><div class="tile"></div><div class="tile"></div>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -279,6 +388,10 @@
           <p>Capture decisions, risks and action items by speaker, then send the summary.</p>
         </div>
       </div>
+      <div class="roles">
+        Ready-made starting points for
+        <span>Software engineer</span><span>Architect</span><span>Product manager</span><span>Data scientist</span><span>ML engineer</span><span>Behavioural rounds</span>
+      </div>
     </div>
   </section>
 
@@ -290,25 +403,64 @@
       </div>
       <div class="plans">
         <div class="plan">
-          <div class="plan-name">Free</div>
+          <h3 class="plan-name">Free</h3>
           <div class="plan-price">$0</div>
           <p class="plan-desc">Try it on a real conversation before you pay for anything.</p>
           <a href="/signup/" class="btn btn-secondary">Create a free account</a>
         </div>
         <div class="plan popular">
-          <div class="plan-name">Pro</div>
+          <h3 class="plan-name">Pro</h3>
           <div class="plan-price">$19 <small>per month</small></div>
           <p class="plan-desc">For an active job search or a full calendar of calls.</p>
           <a href="/pricing/" class="btn btn-primary">See what Pro includes</a>
         </div>
         <div class="plan">
-          <div class="plan-name">Team</div>
+          <h3 class="plan-name">Team</h3>
           <div class="plan-price">$49 <small>per month</small></div>
           <p class="plan-desc">Shared sessions and templates for recruiting and consulting teams.</p>
           <a href="/pricing/" class="btn btn-secondary">See what Team includes</a>
         </div>
       </div>
       <p class="plans-more"><a href="/pricing/">Compare every feature by plan</a></p>
+    </div>
+  </section>
+
+  <!-- Questions -->
+  <section class="section" id="questions">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>Questions people ask first</h2>
+      </div>
+      <div class="faq">
+        <details>
+          <summary>Does HappyHelper join my call?</summary>
+          <p>No. Nothing joins the call as a participant. HappyHelper runs in a browser tab or in the desktop overlay and listens through your microphone. The overlay can also pick up your computer's audio.</p>
+        </details>
+        <details>
+          <summary>Which call apps does it work with?</summary>
+          <p>Any of them. It listens to the conversation instead of plugging into the app, so Zoom, Google Meet, Microsoft Teams and calls on speaker all work the same way.</p>
+        </details>
+        <details>
+          <summary>Which languages can it follow?</summary>
+          <p>You choose the language when you create a session: English (US, UK or India), Spanish, French, German, Japanese, Chinese, Korean or Portuguese.</p>
+        </details>
+        <details>
+          <summary>Which AI models does it use?</summary>
+          <p>Speech is transcribed with Whisper, running on Groq. Answers come from the model set for the server, through Groq or OpenRouter.</p>
+        </details>
+        <details>
+          <summary>What happens to my audio and transcripts?</summary>
+          <p>Audio from a session is uploaded to the HappyHelper server, stored with that session, and sent to the transcription provider to be turned into text. The transcript and the suggested answers are saved to your account so you can review and export them. Do not record anything you are not allowed to share.</p>
+        </details>
+        <details>
+          <summary>Can other people on the call see it?</summary>
+          <p>The desktop overlay is left out of screen shares and recordings. A browser tab is visible if you share that tab or your whole screen. Many employers do not allow outside help in interviews, and recording laws differ by place, so check the rules that apply to you.</p>
+        </details>
+        <details>
+          <summary>What does it cost?</summary>
+          <p>The Free plan includes five sessions. Pro and Team are monthly plans. <a href="/pricing/">See what each plan includes.</a></p>
+        </details>
+      </div>
     </div>
   </section>
 
@@ -325,6 +477,41 @@
 </main>
 
 {% include "interview/_public_footer.html" %}
+
+<script>
+  /* Answer template tabs: click or arrow keys */
+  (function () {
+    var tabs = Array.prototype.slice.call(document.querySelectorAll('.shape-tab'));
+    function pick(tab, focus) {
+      tabs.forEach(function (t) {
+        var on = t === tab;
+        t.setAttribute('aria-selected', String(on)); t.tabIndex = on ? 0 : -1;
+        document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+      });
+      if (focus) tab.focus();
+    }
+    tabs.forEach(function (t, i) {
+      t.addEventListener('click', function () { pick(t); });
+      t.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowRight') pick(tabs[(i + 1) % tabs.length], true);
+        if (e.key === 'ArrowLeft') pick(tabs[(i + tabs.length - 1) % tabs.length], true);
+      });
+    });
+  })();
+
+  /* Point the download buttons at the newest installers. Until then they open the releases page. */
+  fetch('https://api.github.com/repos/sandhoter2/happyhelper/releases/latest', { cache: 'no-store' })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (data) {
+      if (!data) return;
+      var assets = data.assets || [];
+      var dmg = assets.filter(function (a) { return /\.dmg$/.test(a.name); })[0];
+      var exe = assets.filter(function (a) { return /Setup.*\.exe$/.test(a.name); })[0] || assets.filter(function (a) { return /\.exe$/.test(a.name); })[0];
+      if (dmg) document.getElementById('dlMac').href = dmg.browser_download_url;
+      if (exe) document.getElementById('dlWin').href = exe.browser_download_url;
+    })
+    .catch(function () {});
+</script>
 
 </body>
 </html>

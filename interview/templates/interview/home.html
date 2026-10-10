@@ -136,7 +136,7 @@ body.os-mac #dlMacBtn, body.os-win #dlWinBtn { background: var(--brand); border-
 body.os-mac #dlMacBtn small, body.os-win #dlWinBtn small { color: var(--on-brand); opacity: 0.7; }
 
 /* Free plan usage */
-.plan-card { display: grid; gap: 12px; }
+.plan-card { display: grid; gap: 12px; align-content: start; }
 .plan-card-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .plan-card-top strong { font-size: 15px; }
 .plan-card-top span { font-size: 13px; color: var(--text2); font-variant-numeric: tabular-nums; }
@@ -159,7 +159,7 @@ body.os-mac #dlMacBtn small, body.os-win #dlWinBtn small { color: var(--on-brand
 
 @media (max-width: 980px) {
   .dash { grid-template-columns: minmax(0, 1fr); }
-  .dash-rail { position: static; display: grid; grid-template-columns: 1fr 1fr; }
+  .dash-rail { position: static; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); align-items: start; }
 }
 @media (max-width: 720px) {
   .dash-rail { grid-template-columns: 1fr; }
@@ -173,7 +173,7 @@ body.os-mac #dlMacBtn small, body.os-win #dlWinBtn small { color: var(--on-brand
 <div class="container">
   <div class="dash">
 
-    <main>
+    <div>
       <div class="page-header">
         <div>
           <h1>Sessions</h1>
@@ -309,7 +309,7 @@ body.os-mac #dlMacBtn small, body.os-win #dlWinBtn small { color: var(--on-brand
         <a href="/session/new/" class="btn btn-primary">New session</a>
       </div>
       {% endif %}
-    </main>
+    </div>
 
     <aside class="dash-rail" aria-label="Summary">
       <section class="rail-card">
@@ -345,10 +345,10 @@ body.os-mac #dlMacBtn small, body.os-win #dlWinBtn small { color: var(--on-brand
         <h3>Desktop overlay</h3>
         <p>A small always-on-top window for Zoom, Teams and Google Meet. It stays out of screen shares.</p>
         <div class="dl-btns">
-          <a id="dlMacBtn" href="https://github.com/sandhoter2/happyhelper/releases/latest/download/HappyHelper-1.2.0.dmg" class="dl-btn">
+          <a id="dlMacBtn" href="https://github.com/sandhoter2/happyhelper/releases/latest" class="dl-btn">
             <span>Download for Mac</span><small>Apple silicon and Intel</small>
           </a>
-          <a id="dlWinBtn" href="https://github.com/sandhoter2/happyhelper/releases/latest/download/HappyHelper-Setup-1.2.0.exe" class="dl-btn">
+          <a id="dlWinBtn" href="https://github.com/sandhoter2/happyhelper/releases/latest" class="dl-btn">
             <span>Download for Windows</span><small>10 and 11</small>
           </a>
         </div>
@@ -430,26 +430,22 @@ document.addEventListener('click', e => {
   }
 });
 
-// Detect OS and highlight the matching download button
+// Highlight the download for this computer, and point both buttons at the newest installers.
+// Until that lookup returns (or if it fails), the buttons open the releases page, which always exists.
 (function() {
   const ua = navigator.userAgent;
-  if (/Mac|iPhone|iPad/.test(ua) && !/Windows/.test(ua)) {
-    document.body.classList.add('os-mac');
-  } else if (/Win/.test(ua)) {
-    document.body.classList.add('os-win');
-    // Try to fetch latest release version from GitHub API and update URLs
-    fetch('https://api.github.com/repos/sandhoter2/happyhelper/releases/latest', {cache:'no-store'})
-      .then(r => r.ok ? r.json() : null).then(data => {
-        if (!data) return;
-        const mac = document.getElementById('dlMacBtn');
-        const win = document.getElementById('dlWinBtn');
-        const assets = data.assets || [];
-        const dmg = assets.find(a => a.name.endsWith('.dmg'));
-        const exe = assets.find(a => a.name.match(/Setup.*\.exe$/));
-        if (mac && dmg) mac.href = dmg.browser_download_url;
-        if (win && exe) win.href = exe.browser_download_url;
-      }).catch(() => {});
-  }
+  if (/Mac|iPhone|iPad/.test(ua) && !/Windows/.test(ua)) document.body.classList.add('os-mac');
+  else if (/Win/.test(ua)) document.body.classList.add('os-win');
+  fetch('https://api.github.com/repos/sandhoter2/happyhelper/releases/latest', {cache: 'no-store'})
+    .then(r => r.ok ? r.json() : null).then(data => {
+      if (!data) return;
+      const assets = data.assets || [];
+      const dmg = assets.find(a => a.name.endsWith('.dmg'));
+      const exe = assets.find(a => /Setup.*\.exe$/.test(a.name)) || assets.find(a => a.name.endsWith('.exe'));
+      const mac = document.getElementById('dlMacBtn'), win = document.getElementById('dlWinBtn');
+      if (mac && dmg) mac.href = dmg.browser_download_url;
+      if (win && exe) win.href = exe.browser_download_url;
+    }).catch(() => {});
 })();
 
 function deleteSession(id, title, btn) {

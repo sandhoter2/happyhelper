@@ -46,7 +46,7 @@
       {% csrf_token %}
 
       <div class="settings-section">
-        <div class="settings-section-title">Appearance</div>
+        <h2 class="settings-section-title">Appearance</h2>
         <div class="form-group">
           <label>Theme</label>
           <div class="theme-choice">
@@ -64,7 +64,7 @@
       </div>
 
       <div class="settings-section">
-        <div class="settings-section-title">Groq</div>
+        <h2 class="settings-section-title">Groq</h2>
 
         <div class="form-group">
           <label for="api_key">API key</label>
@@ -83,7 +83,7 @@
       </div>
 
       <div class="settings-section">
-        <div class="settings-section-title">Models</div>
+        <h2 class="settings-section-title">Models</h2>
 
         <div class="form-group">
           <label for="model">Answer model</label>
@@ -103,7 +103,7 @@
       </div>
 
       <div class="settings-section">
-        <div class="settings-section-title">OpenRouter</div>
+        <h2 class="settings-section-title">OpenRouter</h2>
         <div class="form-group">
           <label for="openrouter_key">API key</label>
           <input type="password" id="openrouter_key" name="openrouter_key" class="form-control"
@@ -126,7 +126,7 @@
       </div>
 
       <div class="settings-section">
-        <div class="settings-section-title">Groq models to try</div>
+        <h2 class="settings-section-title">Groq models to try</h2>
         <div class="model-list">
           <div><code>openai/gpt-oss-120b</code> Recommended chat model</div>
           <div><code>llama-3.3-70b-versatile</code> Llama 3.3 70B (may need a higher tier)</div>
@@ -143,7 +143,7 @@
     </form>
 
     <div class="settings-section" style="margin-top:24px">
-      <div class="settings-section-title">After saving</div>
+      <h2 class="settings-section-title">After saving</h2>
       <div class="settings-note">
         Keys and models are saved to <code>.env</code> in the project root. Restart the server for them to take effect:
         <div style="margin-top:8px"><code>python manage.py runserver 8000</code></div>
