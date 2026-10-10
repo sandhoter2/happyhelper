@@ -20,7 +20,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from .forms import NewSessionForm, UserProfileForm
-from .models import AIMessage, InterviewSession, MeetingParticipant, TranscriptEntry, UserProfile, PromptTemplate
+from .models import AIMessage, InterviewSession, MeetingParticipant, TranscriptEntry, UserProfile, PromptTemplate, QuestionBank
 
 AI_HELP_DEFAULTS = [
     {"name": "Default", "icon": "✨", "description": "Clear, direct answer — no forced structure", "prompt": "", "order": 0},
@@ -1757,3 +1757,318 @@ def error_404(request, exception=None):
 
 def error_500(request):
     return render(request, "500.html", status=500)
+
+# ── QUESTION BANK ───────────────────────────────────────────────────────────────
+
+@login_required
+def questions_page(request):
+    category = request.GET.get("category", "")
+    difficulty = request.GET.get("difficulty", "")
+    search = request.GET.get("q", "").strip()
+
+    qs = QuestionBank.objects.filter(is_active=True)
+    if category:
+        qs = qs.filter(category=category)
+    if difficulty:
+        qs = qs.filter(difficulty=difficulty)
+    if search:
+        qs = qs.filter(Q(question__icontains=search) | Q(tags__icontains=search) | Q(role__icontains=search))
+
+    return render(request, "interview/questions.html", {
+        "questions": qs[:120],
+        "categories": QuestionBank.CATEGORY_CHOICES,
+        "difficulties": QuestionBank.DIFFICULTY_CHOICES,
+        "current_category": category,
+        "current_difficulty": difficulty,
+        "search": search,
+        "total": qs.count(),
+    })
+
+
+@csrf_exempt
+def api_questions_list(request):
+    """Return questions as JSON — used by live session injection picker."""
+    if (r := _auth_required(request)): return r
+    category = request.GET.get("category", "")
+    difficulty = request.GET.get("difficulty", "")
+    search = request.GET.get("q", "").strip()
+
+    qs = QuestionBank.objects.filter(is_active=True)
+    if category:
+        qs = qs.filter(category=category)
+    if difficulty:
+        qs = qs.filter(difficulty=difficulty)
+    if search:
+        qs = qs.filter(Q(question__icontains=search) | Q(tags__icontains=search))
+
+    return JsonResponse({"questions": [
+        {"id": q.id, "question": q.question, "category": q.category,
+         "difficulty": q.difficulty, "hint": q.hint, "tags": q.tags}
+        for q in qs[:60]
+    ]})
+
+
+# ── MOCK INTERVIEW ──────────────────────────────────────────────────────────────
+
+@csrf_exempt
+@require_POST
+def api_mock_question(request, session_id):
+    """Stream the next AI-generated interview question (mock interview mode)."""
+    if (r := _auth_required(request)): return r
+    ext_token = request.headers.get('X-Ext-Token', '').strip()
+    profile = _profile_for_token(ext_token) if ext_token else None
+    user = profile.user if profile else request.user
+    session = get_object_or_404(InterviewSession, id=session_id, owner=user)
+
+    client, model, _ = _get_chat_client()
+    if not client:
+        return JsonResponse({"error": "No AI key set."}, status=500)
+
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        data = {}
+
+    q_number = data.get("question_number", 1)
+    already_asked = [
+        m.trigger_text.replace("[MockQ] ", "")
+        for m in session.ai_messages.filter(trigger_text__startswith="[MockQ]")
+    ]
+
+    system_msg = (
+        "You are a senior technical interviewer conducting a realistic mock interview. "
+        "Generate ONE focused interview question appropriate for the role. "
+        "Vary the question types: behavioral, technical, situational, and culture fit. "
+        "Return ONLY the question text. No preamble, no numbering, no quotation marks."
+    )
+
+    parts = [f"Question number: {q_number}"]
+    if session.title:
+        parts.append(f"Role: {session.title}")
+    if session.company:
+        parts.append(f"Company: {session.company}")
+    if session.job_description:
+        parts.append(f"Job description:\n{session.job_description[:800]}")
+    if already_asked:
+        parts.append("Questions already asked (do not repeat):\n" +
+                     "\n".join(f"- {q}" for q in already_asked[-8:]))
+    parts.append("\nGenerate the next interview question:")
+
+    user_msg = "\n".join(parts)
+
+    def stream_sse():
+        full_content = []
+        yield f"data: {json.dumps({'type': 'start'})}\n\n"
+        try:
+            stream = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": user_msg},
+                ],
+                max_tokens=200,
+                stream=True,
+            )
+            for chunk in stream:
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    full_content.append(delta)
+                    yield f"data: {json.dumps({'type': 'text', 'text': delta})}\n\n"
+        except Exception as exc:
+            yield f"data: {json.dumps({'type': 'error', 'error': str(exc)})}\n\n"
+            return
+
+        q_text = "".join(full_content).strip()
+        TranscriptEntry.objects.create(
+            session=session,
+            content=q_text,
+            speaker_type=TranscriptEntry.TYPE_SYSTEM,
+            speaker_name="AI Interviewer",
+        )
+        AIMessage.objects.create(
+            session=session,
+            trigger_text=f"[MockQ] {q_text[:200]}",
+            content=q_text,
+        )
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+    return StreamingHttpResponse(
+        stream_sse(),
+        content_type="text/event-stream",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
+
+
+# ── CODING INTERVIEW HELPER ─────────────────────────────────────────────────────
+
+@csrf_exempt
+@require_POST
+def api_code_help(request, session_id):
+    """Stream AI code explanation / review / hints as SSE."""
+    if (r := _auth_required(request)): return r
+    ext_token = request.headers.get('X-Ext-Token', '').strip()
+    profile = _profile_for_token(ext_token) if ext_token else None
+    user = profile.user if profile else request.user
+    session = get_object_or_404(InterviewSession, id=session_id, owner=user)
+
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "invalid JSON"}, status=400)
+
+    code = data.get("code", "").strip()
+    language = data.get("language", "python")
+    action = data.get("action", "explain")   # explain | review | optimize | hint
+    problem = data.get("problem", "").strip()
+
+    if not code and not problem:
+        return JsonResponse({"error": "code or problem required"}, status=400)
+
+    client, model, _ = _get_chat_client()
+    if not client:
+        return JsonResponse({"error": "No AI key set."}, status=500)
+
+    action_prompts = {
+        "explain": "Explain what this code does, how it works, and the key concepts involved.",
+        "review": "Review for correctness, edge cases, and efficiency. Identify bugs and suggest improvements.",
+        "optimize": "Suggest time/space complexity improvements. Show the optimized version with explanation.",
+        "hint": "Give a targeted hint toward the solution without giving it away. Help the candidate think, not copy.",
+    }
+
+    system_msg = (
+        "You are an expert software engineer coaching a candidate during a coding interview. "
+        "Be concise and specific. Use fenced code blocks with syntax when showing code. "
+        + action_prompts.get(action, action_prompts["explain"])
+    )
+
+    parts = []
+    if problem:
+        parts.append(f"Problem: {problem}")
+    if code:
+        parts.append(f"```{language}\n{code}\n```")
+    if not parts:
+        return JsonResponse({"error": "nothing to analyze"}, status=400)
+
+    user_msg = "\n\n".join(parts)
+
+    def stream_sse():
+        full_content = []
+        yield f"data: {json.dumps({'type': 'start'})}\n\n"
+        try:
+            stream = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": user_msg},
+                ],
+                max_tokens=800,
+                stream=True,
+            )
+            for chunk in stream:
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    full_content.append(delta)
+                    yield f"data: {json.dumps({'type': 'text', 'text': delta})}\n\n"
+        except Exception as exc:
+            yield f"data: {json.dumps({'type': 'error', 'error': str(exc)})}\n\n"
+            return
+
+        AIMessage.objects.create(
+            session=session,
+            trigger_text=f"[Code:{action}] {(problem or code)[:80]}",
+            content="".join(full_content),
+        )
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+    return StreamingHttpResponse(
+        stream_sse(),
+        content_type="text/event-stream",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
+
+
+# ── DETAILED POST-SESSION FEEDBACK ─────────────────────────────────────────────
+
+@csrf_exempt
+@require_POST
+def api_session_feedback(request, session_id):
+    """Generate per-answer detailed feedback for a completed session."""
+    if (r := _auth_required(request)): return r
+    ext_token = request.headers.get('X-Ext-Token', '').strip()
+    profile = _profile_for_token(ext_token) if ext_token else None
+    user = profile.user if profile else request.user
+    session = get_object_or_404(InterviewSession, id=session_id, owner=user)
+
+    client, model, _ = _get_chat_client()
+    if not client:
+        return JsonResponse({"error": "No AI key set."}, status=500)
+
+    transcripts = list(session.transcripts.order_by("created_at"))
+    if not transcripts:
+        return JsonResponse({"error": "No transcript to analyze"}, status=400)
+
+    # Build Q&A pairs: system audio = interviewer question, mic = candidate answer
+    qa_pairs = []
+    current_q = None
+    current_a = []
+    for t in transcripts:
+        if t.speaker_type == TranscriptEntry.TYPE_SYSTEM:
+            if current_q and current_a:
+                qa_pairs.append({"q": current_q, "a": " ".join(current_a)})
+            current_q = t.content
+            current_a = []
+        elif t.speaker_type == TranscriptEntry.TYPE_MIC:
+            current_a.append(t.content)
+    if current_q and current_a:
+        qa_pairs.append({"q": current_q, "a": " ".join(current_a)})
+
+    # Fallback: use all mic entries as standalone answers
+    if not qa_pairs:
+        mic_entries = [t for t in transcripts if t.speaker_type == TranscriptEntry.TYPE_MIC]
+        for t in mic_entries[:8]:
+            qa_pairs.append({"q": "Candidate response", "a": t.content})
+
+    if not qa_pairs:
+        return JsonResponse({"error": "No answers to analyze"}, status=400)
+
+    system_msg = (
+        "You are an expert interview coach. Analyze each Q&A and give specific, actionable feedback. "
+        "Return ONLY valid JSON:\n"
+        '{"feedback": [{"question": "...", "answer_summary": "...", "score": <1-10>, '
+        '"what_worked": "one sentence", "what_to_improve": "one sentence", '
+        '"better_phrasing": "a short example of a stronger answer opening"}], '
+        '"overall_tips": ["tip 1", "tip 2", "tip 3"], '
+        '"communication_score": <1-10>, "confidence_score": <1-10>}'
+    )
+
+    qa_text = "\n\n".join(
+        f"Q{i+1}: {p['q']}\nA{i+1}: {p['a']}"
+        for i, p in enumerate(qa_pairs[:10])
+    )
+    user_msg = (
+        f"Role: {session.title}\nCompany: {session.company or 'N/A'}\n\n"
+        f"Interview transcript:\n{qa_text[:4000]}"
+    )
+
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "system", "content": system_msg}, {"role": "user", "content": user_msg}],
+            max_tokens=2000,
+        )
+        raw = response.choices[0].message.content.strip()
+        if raw.startswith("```"):
+            raw = "\n".join(raw.split("\n")[1:])
+            if raw.endswith("```"):
+                raw = raw[:-3]
+        result = json.loads(raw)
+        AIMessage.objects.create(
+            session=session,
+            trigger_text="[Detailed Feedback]",
+            content=json.dumps(result),
+        )
+        return JsonResponse(result)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "AI returned invalid JSON"}, status=500)
+    except Exception as exc:
+        return JsonResponse({"error": str(exc)}, status=500)

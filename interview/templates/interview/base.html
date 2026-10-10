@@ -114,6 +114,7 @@
     <div class="navbar-actions">
       {% block navbar_actions %}
       {% if user.is_authenticated %}
+      <a href="/questions/" class="btn btn-ghost btn-sm">📚 Questions</a>
       <a href="/session/new/" class="btn btn-primary btn-sm">New session</a>
       {% else %}
       <a href="/login/" class="btn btn-primary btn-sm">Sign in</a>

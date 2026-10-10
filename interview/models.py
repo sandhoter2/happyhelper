@@ -90,9 +90,11 @@ class InterviewSession(models.Model):
 
     SESSION_TYPE_INTERVIEW = "interview"
     SESSION_TYPE_MEETING = "meeting"
+    SESSION_TYPE_MOCK = "mock_interview"
     SESSION_TYPE_CHOICES = [
         (SESSION_TYPE_INTERVIEW, "Interview"),
         (SESSION_TYPE_MEETING, "Teams Meeting"),
+        (SESSION_TYPE_MOCK, "Mock Interview"),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -279,6 +281,48 @@ class DbSyncLog(models.Model):
 
     def __str__(self):
         return f"{self.direction} {self.status} @ {self.started_at:%Y-%m-%d %H:%M}"
+
+
+class QuestionBank(models.Model):
+    CATEGORY_BEHAVIORAL = "behavioral"
+    CATEGORY_TECHNICAL = "technical"
+    CATEGORY_SYSTEM_DESIGN = "system_design"
+    CATEGORY_CODING = "coding"
+    CATEGORY_CULTURE = "culture"
+    CATEGORY_LEADERSHIP = "leadership"
+    CATEGORY_CHOICES = [
+        ("behavioral", "Behavioral"),
+        ("technical", "Technical"),
+        ("system_design", "System Design"),
+        ("coding", "Coding"),
+        ("culture", "Culture Fit"),
+        ("leadership", "Leadership"),
+    ]
+
+    DIFFICULTY_EASY = "easy"
+    DIFFICULTY_MEDIUM = "medium"
+    DIFFICULTY_HARD = "hard"
+    DIFFICULTY_CHOICES = [
+        ("easy", "Easy"),
+        ("medium", "Medium"),
+        ("hard", "Hard"),
+    ]
+
+    question = models.TextField()
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default="behavioral")
+    difficulty = models.CharField(max_length=10, choices=DIFFICULTY_CHOICES, default="medium")
+    role = models.CharField(max_length=100, blank=True, help_text="Target role, e.g. 'Software Engineer'")
+    company = models.CharField(max_length=100, blank=True, help_text="Company name if company-specific")
+    tags = models.CharField(max_length=200, blank=True, help_text="Comma-separated tags")
+    hint = models.TextField(blank=True, help_text="Answering tips or what interviewers look for")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["category", "difficulty", "created_at"]
+
+    def __str__(self):
+        return f"[{self.category}] {self.question[:80]}"
 
 
 class PromptTemplate(models.Model):

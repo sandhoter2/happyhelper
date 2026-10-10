@@ -8,7 +8,7 @@ from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.timezone import localtime
 
-from .models import AIMessage, InterviewSession, Task, TranscriptEntry, UserProfile
+from .models import AIMessage, InterviewSession, QuestionBank, Task, TranscriptEntry, UserProfile
 
 
 @admin.register(UserProfile)
@@ -251,3 +251,17 @@ class AIMessageAdmin(admin.ModelAdmin):
     def content_preview(self, obj):
         return obj.content[:80] + "…" if len(obj.content) > 80 else obj.content
     content_preview.short_description = "AI Response"
+
+
+@admin.register(QuestionBank)
+class QuestionBankAdmin(admin.ModelAdmin):
+    list_display = ("question_preview", "category", "difficulty", "role", "is_active", "created_at")
+    list_filter = ("category", "difficulty", "is_active")
+    search_fields = ("question", "role", "company", "tags")
+    list_editable = ("is_active",)
+    ordering = ("category", "difficulty", "created_at")
+    list_per_page = 50
+
+    def question_preview(self, obj):
+        return obj.question[:80] + "…" if len(obj.question) > 80 else obj.question
+    question_preview.short_description = "Question"

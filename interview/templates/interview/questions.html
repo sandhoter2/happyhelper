@@ -1,0 +1,123 @@
+{% extends "interview/base.html" %}
+{% block title %}Question Bank{% endblock %}
+
+{% block extra_style %}
+.qb-header { padding: 28px 0 20px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
+.qb-header h1 { font-size: 22px; font-weight: 800; font-family: var(--mono); color: var(--text); margin: 0 0 4px; }
+.qb-header p { color: var(--text3); font-size: 13px; margin: 0; }
+.qb-filters { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 24px; align-items: center; }
+.qb-filters form { display: contents; }
+.filter-select { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 6px 10px; font-size: 13px; cursor: pointer; }
+.filter-select:focus { border-color: var(--accent); outline: none; }
+.search-input { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 6px 12px; font-size: 13px; min-width: 200px; flex: 1; }
+.search-input::placeholder { color: var(--text3); }
+.search-input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent-glow); }
+.qb-count { font-size: 12px; color: var(--text3); font-family: var(--mono); }
+.question-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+.q-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 18px; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; position: relative; }
+.q-card:hover { border-color: var(--accent); box-shadow: 0 0 12px var(--accent-glow); }
+.q-card-meta { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.badge-cat { font-size: 10px; padding: 2px 8px; border-radius: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+.cat-behavioral { background: rgba(59,130,246,0.15); color: #3b82f6; }
+.cat-technical { background: rgba(0,240,255,0.1); color: var(--accent); }
+.cat-system_design { background: rgba(108,99,255,0.15); color: #6c63ff; }
+.cat-coding { background: rgba(16,185,129,0.15); color: #10b981; }
+.cat-culture { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.cat-leadership { background: rgba(236,72,153,0.15); color: #ec4899; }
+.badge-diff { font-size: 10px; padding: 2px 8px; border-radius: 6px; font-weight: 600; }
+.diff-easy { background: rgba(16,185,129,0.1); color: #10b981; }
+.diff-medium { background: rgba(245,158,11,0.1); color: #f59e0b; }
+.diff-hard { background: rgba(239,68,68,0.1); color: #ef4444; }
+.q-text { font-size: 14px; line-height: 1.55; color: var(--text); margin-bottom: 10px; }
+.q-hint { font-size: 12px; color: var(--text3); line-height: 1.5; border-top: 1px solid var(--border); padding-top: 10px; display: none; }
+.q-card.open .q-hint { display: block; }
+.q-actions { display: flex; gap: 6px; margin-top: 10px; }
+.q-copy-btn { font-size: 11px; padding: 3px 10px; background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; color: var(--text2); cursor: pointer; transition: all 0.15s; }
+.q-copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+.empty-state { text-align: center; padding: 60px 20px; color: var(--text3); }
+.empty-state .big { font-size: 48px; margin-bottom: 12px; }
+{% endblock %}
+
+{% block content %}
+<div class="container">
+  <div class="qb-header">
+    <h1>// Question Bank</h1>
+    <p>{{ total }} question{{ total|pluralize }} — click any card to reveal answering tips. Use the copy button to paste into a session.</p>
+  </div>
+
+  <div class="qb-filters">
+    <form method="get" style="display:contents">
+      <select class="filter-select" name="category" onchange="this.form.submit()">
+        <option value="">All Categories</option>
+        {% for val, label in categories %}
+        <option value="{{ val }}" {% if val == current_category %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <select class="filter-select" name="difficulty" onchange="this.form.submit()">
+        <option value="">All Difficulties</option>
+        {% for val, label in difficulties %}
+        <option value="{{ val }}" {% if val == current_difficulty %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <input type="text" class="search-input" name="q" value="{{ search }}" placeholder="Search questions…" />
+      <button type="submit" class="btn btn-primary btn-sm">Search</button>
+      {% if current_category or current_difficulty or search %}
+      <a href="{% url 'questions' %}" class="btn btn-secondary btn-sm">Clear</a>
+      {% endif %}
+    </form>
+    <span class="qb-count" style="margin-left:auto">{{ total }} result{{ total|pluralize }}</span>
+  </div>
+
+  {% if questions %}
+  <div class="question-grid">
+    {% for q in questions %}
+    <div class="q-card" id="qcard-{{ q.id }}" onclick="toggleCard({{ q.id }})">
+      <div class="q-card-meta">
+        <span class="badge-cat cat-{{ q.category }}">{{ q.get_category_display }}</span>
+        <span class="badge-diff diff-{{ q.difficulty }}">{{ q.get_difficulty_display }}</span>
+        {% if q.role %}<span style="font-size:10px;color:var(--text3);padding:2px 0">{{ q.role }}</span>{% endif %}
+      </div>
+      <div class="q-text">{{ q.question }}</div>
+      {% if q.hint %}
+      <div class="q-hint">💡 {{ q.hint }}</div>
+      {% endif %}
+      <div class="q-actions" onclick="event.stopPropagation()">
+        <button class="q-copy-btn" onclick="copyQ('{{ q.id }}', `{{ q.question|escapejs }}`)">📋 Copy</button>
+        {% if q.hint %}<button class="q-copy-btn" onclick="toggleCard({{ q.id }})">💡 Hint</button>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="big">🔍</div>
+    <p>No questions match your filters.</p>
+    <a href="{% url 'questions' %}" class="btn btn-secondary btn-sm" style="margin-top:12px">Clear filters</a>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+function toggleCard(id) {
+  document.getElementById('qcard-' + id).classList.toggle('open');
+}
+
+function copyQ(id, text) {
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.querySelector(`#qcard-${id} .q-copy-btn`);
+    const orig = btn.textContent;
+    btn.textContent = '✓ Copied';
+    btn.style.borderColor = 'var(--accent)';
+    btn.style.color = 'var(--accent)';
+    setTimeout(() => { btn.textContent = orig; btn.style.borderColor = ''; btn.style.color = ''; }, 1500);
+  }).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+  });
+}
+</script>
+{% endblock %}

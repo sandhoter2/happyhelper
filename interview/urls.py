@@ -57,4 +57,13 @@ urlpatterns = [
     path("api/templates/<int:template_id>/update/", views.api_template_update, name="api_template_update"),
     path("api/templates/<int:template_id>/delete/", views.api_template_delete, name="api_template_delete"),
     path("api/theme/", views.api_toggle_theme, name="api_theme"),
+    # Question Bank
+    path("questions/", views.questions_page, name="questions"),
+    path("api/questions/", views.api_questions_list, name="api_questions"),
+    # Mock Interview
+    path("api/session/<uuid:session_id>/mock-question/", views.api_mock_question, name="api_mock_question"),
+    # Coding Interview Helper
+    path("api/session/<uuid:session_id>/code-help/", views.api_code_help, name="api_code_help"),
+    # Detailed Post-Session Feedback
+    path("api/session/<uuid:session_id>/feedback/", views.api_session_feedback, name="api_session_feedback"),
 ]

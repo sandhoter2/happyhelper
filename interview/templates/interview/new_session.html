@@ -173,6 +173,14 @@
             <div class="stype-desc">Speaker tracking, suggestions and a summary</div>
           </div>
         </label>
+        <label class="stype-card" id="stypeMock">
+          <input type="radio" name="session_type" value="mock_interview" onchange="setSessionType('mock_interview')">
+          <span class="stype-icon">🎓</span>
+          <div class="stype-info">
+            <div class="stype-title">Mock Interview</div>
+            <div class="stype-desc">AI plays the interviewer — practice before the real thing</div>
+          </div>
+        </label>
       </div>
 
       <div class="field-label">Start from an example (optional)</div>
@@ -305,15 +313,20 @@
 <script>
 function setSessionType(type) {
   const isInterview = type === 'interview';
+  const isMeeting = type === 'meeting';
+  const isMock = type === 'mock_interview';
   document.getElementById('stypeInterview').classList.toggle('active', isInterview);
-  document.getElementById('stypeMeeting').classList.toggle('active', !isInterview);
-  document.getElementById('jdField').style.display = isInterview ? '' : 'none';
-  document.getElementById('agendaField').style.display = isInterview ? 'none' : '';
-  document.getElementById('titleLabel').childNodes[0].textContent = isInterview ? 'Role or session title ' : 'Meeting title ';
-  document.getElementById('title').placeholder = isInterview
-    ? 'e.g. TIBCO Architect — System Design Review'
-    : 'e.g. Q4 Planning — Engineering All-Hands';
-  document.getElementById('startBtn').textContent = isInterview ? 'Start session' : 'Start meeting';
+  document.getElementById('stypeMeeting').classList.toggle('active', isMeeting);
+  document.getElementById('stypeMock').classList.toggle('active', isMock);
+  document.getElementById('jdField').style.display = isMeeting ? 'none' : '';
+  document.getElementById('agendaField').style.display = isMeeting ? '' : 'none';
+  document.getElementById('titleLabel').childNodes[0].textContent = isMeeting ? 'Meeting Title ' : 'Role / Session Title ';
+  document.getElementById('title').placeholder = isMeeting
+    ? 'e.g. Q4 Planning — Engineering All-Hands'
+    : isMock
+    ? 'e.g. Software Engineer — Mock Interview'
+    : 'e.g. TIBCO Architect — System Design Review';
+  document.getElementById('startBtn').textContent = isMeeting ? '📹 Start Meeting' : isMock ? '🎓 Start Mock Interview' : '▶ Start Session';
 }
 
 function getCookie(name) {

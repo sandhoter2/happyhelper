@@ -1358,6 +1358,10 @@ body.tc-select-mode .transcript-entry.selected::before, .transcript-entry.select
   </div>
   <div class="session-controls">
     <button class="btn btn-ghost btn-sm" onclick="toggleQuickQ()" id="quickQBtn" title="Quick questions" aria-label="Quick questions">{% include "interview/_icon.html" with name="zap" %} <span class="btn-label">Quick questions</span></button>
+    {% if session.session_type == 'mock_interview' %}
+    <button class="btn btn-ghost btn-sm" onclick="getNextMockQuestion()" id="mockQBtn" title="Ask the next interview question" style="background:rgba(108,99,255,0.12);border-color:#6c63ff;color:#a78bfa">🎓 Next Q</button>
+    {% endif %}
+    <button class="btn btn-ghost btn-sm" onclick="toggleCodeEditor()" id="codeEditorBtn" title="Toggle coding helper">💻 Code</button>
     <button class="btn btn-ghost btn-sm" onclick="toggleFocusMode()" id="focusModeBtn" title="Focus mode (F)" aria-label="Focus mode">{% include "interview/_icon.html" with name="focus" %}</button>
     <button class="btn btn-ghost btn-sm" onclick="openModal('shortcutsModal')" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">{% include "interview/_icon.html" with name="keyboard" %}</button>
     {% if session.session_type != 'meeting' %}
@@ -1701,6 +1705,33 @@ body.tc-select-mode .transcript-entry.selected::before, .transcript-entry.select
   <button class="qq-chip" onclick="quickQ('Summarize what was just said')">Summarize</button>
   <button class="qq-chip" onclick="quickQ('What are common mistakes to avoid?')">Mistakes to avoid</button>
   <button class="qq-chip" onclick="quickQ('What is the best practice here?')">Best practice</button>
+</div>
+
+<!-- Code Editor Panel -->
+<div id="codeEditorPanel" style="display:none;border-top:1px solid var(--border);background:var(--bg);padding:12px 16px">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+    <span style="font-size:11px;font-family:var(--mono);color:var(--accent);font-weight:700">// CODE HELPER</span>
+    <select id="codeLangSelect" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:3px 8px;font-family:var(--mono)">
+      <option value="python">Python</option>
+      <option value="javascript">JavaScript</option>
+      <option value="java">Java</option>
+      <option value="cpp">C++</option>
+      <option value="go">Go</option>
+      <option value="rust">Rust</option>
+      <option value="sql">SQL</option>
+      <option value="other">Other</option>
+    </select>
+    <input id="codeProblemInput" type="text" placeholder="Problem context (optional)…" style="flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:4px 10px" />
+    <button onclick="toggleCodeEditor()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:16px;line-height:1;padding:0 4px" title="Close">✕</button>
+  </div>
+  <textarea id="codeInput" rows="8" placeholder="Paste your code here…" style="width:100%;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:var(--mono);font-size:13px;padding:10px;resize:vertical;box-sizing:border-box;line-height:1.5"></textarea>
+  <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+    <button class="btn btn-ghost btn-sm" onclick="runCodeHelp('explain')" style="font-size:12px">🔍 Explain</button>
+    <button class="btn btn-ghost btn-sm" onclick="runCodeHelp('review')" style="font-size:12px">🔎 Review</button>
+    <button class="btn btn-ghost btn-sm" onclick="runCodeHelp('optimize')" style="font-size:12px">⚡ Optimize</button>
+    <button class="btn btn-ghost btn-sm" onclick="runCodeHelp('hint')" style="font-size:12px">💡 Hint</button>
+  </div>
+  <div id="codeHelpResult" style="display:none;margin-top:12px;padding:12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;font-size:13px;line-height:1.6;white-space:pre-wrap;font-family:var(--mono);max-height:280px;overflow-y:auto"></div>
 </div>
 
 <div class="bottom-bar">
@@ -3249,6 +3280,103 @@ function quickQ(text) {
   if (qi) { qi.value = text; qi.focus(); }
   if (fqi) fqi.value = text;
   triggerAI();
+}
+
+// ── Code Editor Helper ────────────────────────────────────────────────────────
+function toggleCodeEditor() {
+  const panel = document.getElementById('codeEditorPanel');
+  const btn = document.getElementById('codeEditorBtn');
+  const visible = panel.style.display !== 'none';
+  panel.style.display = visible ? 'none' : 'block';
+  btn.classList.toggle('active', !visible);
+}
+
+function runCodeHelp(action) {
+  const code = document.getElementById('codeInput').value.trim();
+  if (!code) { alert('Paste some code first.'); return; }
+  const lang = document.getElementById('codeLangSelect').value;
+  const problem = document.getElementById('codeProblemInput').value.trim();
+  const resultEl = document.getElementById('codeHelpResult');
+  resultEl.style.display = 'block';
+  resultEl.textContent = '⏳ Analyzing…';
+
+  const sessionId = "{{ session.id }}";
+  fetch(`/api/session/${sessionId}/code-help/`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken')},
+    body: JSON.stringify({code, language: lang, action, problem})
+  }).then(res => {
+    if (!res.ok) { res.text().then(t => { resultEl.textContent = 'Error: ' + t; }); return; }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    resultEl.textContent = '';
+    function read() {
+      reader.read().then(({done, value}) => {
+        if (done) return;
+        const chunk = decoder.decode(value);
+        chunk.split('\n').forEach(line => {
+          if (line.startsWith('data: ')) {
+            const d = line.slice(6);
+            if (d === '[DONE]') return;
+            try { resultEl.textContent += JSON.parse(d).text || ''; } catch {}
+          }
+        });
+        resultEl.scrollTop = resultEl.scrollHeight;
+        read();
+      });
+    }
+    read();
+  }).catch(e => { resultEl.textContent = 'Error: ' + e.message; });
+}
+
+// ── Mock Interview ────────────────────────────────────────────────────────────
+function getNextMockQuestion() {
+  const btn = document.getElementById('mockQBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ …'; }
+  const sessionId = "{{ session.id }}";
+  fetch(`/api/session/${sessionId}/mock-question/`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken')},
+    body: JSON.stringify({})
+  }).then(res => {
+    if (!res.ok) { res.text().then(t => alert('Error: ' + t)); if (btn) { btn.disabled = false; btn.textContent = '🎓 Next Q'; } return; }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText = '';
+    function read() {
+      reader.read().then(({done, value}) => {
+        if (done) {
+          if (btn) { btn.disabled = false; btn.textContent = '🎓 Next Q'; }
+          if (fullText.trim()) appendTranscriptEntry('🤖 AI Interviewer', fullText.trim(), 'system');
+          return;
+        }
+        const chunk = decoder.decode(value);
+        chunk.split('\n').forEach(line => {
+          if (line.startsWith('data: ')) {
+            const d = line.slice(6);
+            if (d === '[DONE]') return;
+            try { fullText += JSON.parse(d).text || ''; } catch {}
+          }
+        });
+        read();
+      });
+    }
+    read();
+  }).catch(e => { alert('Error: ' + e.message); if (btn) { btn.disabled = false; btn.textContent = '🎓 Next Q'; } });
+}
+
+function appendTranscriptEntry(speaker, text, type) {
+  const feed = document.getElementById('transcriptFeed');
+  if (!feed) return;
+  const entry = document.createElement('div');
+  entry.className = 'transcript-entry';
+  entry.style.cssText = 'padding:10px 14px;border-bottom:1px solid var(--border);animation:fadeIn .3s ease';
+  const label = type === 'system'
+    ? `<span style="font-size:10px;font-family:var(--mono);color:#a78bfa;font-weight:700">${speaker}</span>`
+    : `<span style="font-size:10px;font-family:var(--mono);color:var(--accent);font-weight:700">${speaker}</span>`;
+  entry.innerHTML = `<div style="margin-bottom:4px">${label}</div><div style="font-size:14px;line-height:1.55;white-space:pre-wrap">${text}</div>`;
+  feed.appendChild(entry);
+  feed.scrollTop = feed.scrollHeight;
 }
 
 // ── Export Session ────────────────────────────────────────────────────────────
