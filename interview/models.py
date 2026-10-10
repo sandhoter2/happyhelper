@@ -77,7 +77,7 @@ def create_user_profile(sender, instance, created, **kwargs):
 
 class InterviewSession(models.Model):
     owner = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="sessions", null=True, blank=True
+        User, on_delete=models.CASCADE, related_name="sessions", null=False, blank=False
     )
     STATUS_PENDING = "pending"
     STATUS_ACTIVE = "active"
@@ -118,6 +118,10 @@ class InterviewSession(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+
+    @property
+    def profile(self):
+        return getattr(self.owner, 'profile', None)
 
     def __str__(self):
         return f"{self.title} @ {self.company}" if self.company else self.title

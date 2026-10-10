@@ -50,11 +50,11 @@ class AIMessageInline(admin.TabularInline):
 @admin.register(InterviewSession)
 class InterviewSessionAdmin(admin.ModelAdmin):
     list_display = (
-        "title", "company", "status_badge", "transcript_count",
+        "title", "owner", "company", "status_badge", "transcript_count",
         "ai_count", "language", "created_at_display",
     )
     list_filter = ("status", "language", "created_at")
-    search_fields = ("title", "company", "job_description")
+    search_fields = ("title", "company", "job_description", "owner__username", "owner__email")
     readonly_fields = ("id", "created_at", "ended_at")
     inlines = [TranscriptEntryInline, AIMessageInline]
     ordering = ("-created_at",)
@@ -62,7 +62,7 @@ class InterviewSessionAdmin(admin.ModelAdmin):
 
     fieldsets = (
         ("Session Info", {
-            "fields": ("id", "title", "company", "language", "status"),
+            "fields": ("id", "owner", "title", "company", "language", "status"),
         }),
         ("Context", {
             "fields": ("job_description", "extra_context"),
