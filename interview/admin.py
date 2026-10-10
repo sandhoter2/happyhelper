@@ -93,7 +93,12 @@ class InterviewSessionAdmin(admin.ModelAdmin):
     ai_count.short_description = "AI Msgs"
 
     def created_at_display(self, obj):
-        return localtime(obj.created_at).strftime("%b %d, %Y %I:%M %p")
+        if obj.created_at is None:
+            return "—"
+        dt = obj.created_at
+        if timezone.is_aware(dt):
+            dt = localtime(dt)
+        return dt.strftime("%b %d, %Y %I:%M %p")
     created_at_display.short_description = "Created"
 
 
