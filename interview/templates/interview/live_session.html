@@ -1200,7 +1200,6 @@ kbd { font-size: 12px; background: var(--bg3); border: 1px solid var(--border2);
 }
 
 /* Between phone and desktop: drop the read-outs first, then let toolbars wrap */
-@media (max-width: 1180px) { .tc-stats { display: none !important; } }
 @media (max-width: 900px) {
   .panel-header { flex-wrap: wrap; row-gap: 6px; }
   .session-bar { gap: 10px; }
@@ -1228,8 +1227,118 @@ kbd { font-size: 12px; background: var(--bg3); border: 1px solid var(--border2);
 .note-input-wrap { padding-left: 16px; padding-right: 16px; }
 
 .focus-hint { border-radius: 999px; }
-/* Keep toasts clear of the answer button in the bottom-right corner */
-#toast-container { bottom: auto; top: calc(var(--nav-h) + 68px); }
+/* ── Details inside the workspace ───────────────────────────────────── */
+/* Transcript read-out: one line, plain words, and it gives way before the toolbar does */
+.panel-header { container-type: inline-size; }
+.tc-stats { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 0 1 auto; overflow: hidden; font-size: 12px; color: var(--text3); white-space: nowrap; }
+.tc-stats > span { white-space: nowrap; }
+.tc-stats > span:empty { display: none; }
+#tcTopKeywords { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+.panel:has(#transcriptPlaceholder) .tc-stats { display: none; }
+@container (max-width: 880px) { #tcTopKeywords { display: none; } }
+@container (max-width: 640px) { .tc-stats { display: none; } }
+
+/* Transcript lines: name and tone together, time on the right, actions float so nothing jumps */
+.transcript-entry:hover::after { content: none; }
+.transcript-entry .speaker { justify-content: flex-start; gap: 6px; }
+.transcript-entry .entry-ts { margin-left: auto; font-weight: 500; color: var(--text2); }
+.speaker-name-editable { border-bottom-color: transparent; opacity: 1; }
+.speaker-name-editable:hover { border-bottom-color: currentColor; }
+.speaker-tone { margin-left: 0; opacity: 1; }
+.speaker-rename-input { border-radius: 6px; color: var(--text); }
+.entry-actions { position: absolute; top: -14px; right: 10px; margin: 0; gap: 2px; padding: 2px; background: var(--bg2); border: 1px solid var(--border2); border-radius: 9px; box-shadow: var(--shadow-md); z-index: 3; }
+.transcript-entry:focus-within .entry-actions { display: flex; }
+.entry-action-btn { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; padding: 2px 8px; background: transparent; border: 0; border-radius: 6px; color: var(--text2); font-size: 12px; font-weight: 600; letter-spacing: 0; }
+.entry-action-btn:hover { background: var(--bg3); color: var(--text); }
+.entry-action-btn .ic { width: 14px; height: 14px; }
+.entry-action-btn.entry-action-danger, .entry-action-btn.entry-action-danger:hover { color: var(--red); }
+.voice-chip { border-radius: 999px; }
+
+/* Selecting lines: the tick sits inside the bubble, in the accent colour of the theme */
+.entry-select-cb { display: none; }
+body.tc-select-mode .transcript-entry, .transcript-entry.selected { padding-left: 42px; }
+body.tc-select-mode .transcript-entry::before, .transcript-entry.selected::before { content: ''; position: absolute; left: 14px; top: 12px; width: 16px; height: 16px; border-radius: 5px; border: 1.5px solid var(--border3); background: var(--bg2); font-size: 12px; line-height: 16px; font-weight: 700; text-align: center; color: var(--on-accent); }
+body.tc-select-mode .transcript-entry.selected::before, .transcript-entry.selected::before { content: '✓'; background: var(--accent); border-color: var(--accent); }
+.transcript-entry.selected { background: rgb(var(--accent-rgb) / 0.14) !important; box-shadow: inset 0 0 0 1.5px var(--accent); }
+
+/* Folded answers stay readable: quieter surface, full-strength text */
+.ai-item.minimized, .ai-item.minimized:hover { opacity: 1; background: transparent; box-shadow: inset 0 0 0 1px var(--border); border-left-color: var(--border3); }
+.ai-item.minimized:hover { background: var(--bg3); }
+
+/* Answer card footer */
+.ai-item-q { cursor: pointer; }
+.ai-item-actions { align-items: center; gap: 4px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+.ai-item-actions .btn-xs { color: var(--text2); gap: 5px; }
+.ai-item-actions .btn-xs:hover { color: var(--text); }
+.ai-item-actions .btn-xs .ic { width: 14px; height: 14px; }
+.ai-item-actions .ai-act { width: 28px; padding: 0; justify-content: center; }
+.ai-item-actions [aria-pressed="true"] .ic { fill: currentColor; }
+.ai-info { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin-right: auto; }
+.ai-btns { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.ai-meta { font-size: 12px; color: var(--text3); white-space: nowrap; }
+.ai-conf { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text2); white-space: nowrap; }
+.ai-conf::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--text3); }
+.ai-conf-high::before { background: var(--green); }
+.ai-conf-medium::before { background: var(--yellow); }
+.ai-live-actions { align-items: center; }
+.bionic-on .ai-answer mark, .bionic-on .ai-item-a mark { color: var(--text); background: rgb(255 200 61 / 0.30); border-radius: 3px; }
+#bionicToggle.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+
+/* The see-through slider sits in the status row with a label; it only matters once the panel floats */
+.ai-float-sub { gap: 14px; padding: 4px 14px; container-type: inline-size; }
+.ai-float-sub span { white-space: nowrap; }
+@container (max-width: 400px) { #dragHint { display: none !important; } }
+#bionicStatus { margin-right: auto; }
+.opacity-wrap { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.opacity-slider { width: 64px; }
+#aiFloatPanel.ai-panel-embedded .opacity-wrap { display: none; }
+@media (max-width: 640px) { .opacity-wrap { display: none; } }
+
+/* Floating answer window: the title never wraps */
+.ai-float-title { display: block; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+#convInsightArrow .ic, #fConvInsightArrow .ic { width: 14px; height: 14px; }
+
+/* Quick questions */
+.qq-chip { border-radius: 999px; padding: 4px 12px; letter-spacing: 0; font-size: 12.5px; font-weight: 500; }
+.qq-chip:hover { border-color: var(--border3); color: var(--text); background: var(--bg4); }
+
+/* Focus mode: a strip above the panels with a way out */
+.focus-hint { position: static; transform: none; flex-shrink: 0; justify-content: space-between; gap: 10px; padding: 4px 16px; background: var(--bg2); border-bottom: 1px solid var(--border); border-radius: 0; color: var(--text2); font-size: 12.5px; pointer-events: auto; }
+.focus-hint .btn { color: var(--text2); gap: 6px; }
+
+/* Meeting helper and menus follow the accent of the theme */
+.meeting-helper-btn:hover, .meeting-helper-btn.active { border-color: var(--border3); color: var(--text); background: var(--bg4); }
+.meeting-helper-panel { border-radius: 12px; box-shadow: var(--shadow-lg); }
+.mh-role-tab, .mh-suggestion-item { font-family: inherit; }
+.mh-role-tab { border-radius: 999px; padding: 4px 10px; }
+.mh-role-tab.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.mh-suggestion-item { font-size: 13px; padding: 8px 10px; border-radius: 8px; }
+.mh-suggestion-item:hover { background: var(--bg4); border-color: var(--border3); color: var(--text); }
+.mh-suggestion-item.context-match { border-left: 3px solid var(--accent); padding-left: 8px; }
+.mh-badge { background: var(--accent); color: var(--on-accent); border-radius: 999px; }
+.note-input:focus { border-color: var(--accent); }
+.ai-tpl-item.active { background: rgb(var(--accent-rgb) / 0.13); }
+
+/* Phone: the helper opens as a sheet across the screen, and the active tab uses the theme accent */
+@media (max-width: 640px) {
+  .meeting-helper-panel { position: fixed; left: 12px !important; right: 12px; bottom: 150px; min-width: 0; max-width: none; }
+  .mobile-tab-btn.active { color: var(--text); background: transparent; border-bottom-color: var(--accent); }
+}
+
+/* A long meeting summary scrolls inside its own box; the bars below it stay where they are */
+#teamsRecorderPanel.panel-open { display: flex; flex-direction: column; }
+#teamsRecorderPanel.panel-open > * { flex-shrink: 0; }
+#teamsRecorderPanel.panel-open:has(#meetingSummaryOut[style*="block"]) { max-height: min(48vh, 460px); }
+#teamsRecorderPanel.panel-open #meetingSummaryOut { flex: 0 1 auto; min-height: 96px; overflow-y: auto; overscroll-behavior: contain; }
+#meetingSummaryContent { font-size: 13.5px !important; }
+#meetingSummaryContent strong { color: var(--text); }
+
+/* The divider only exists while the two panels sit side by side */
+.main-layout:not(.with-ai) .col-resizer { display: none; }
+
+/* Messages appear over the top bar, clear of the answer controls and the answer button */
+#toast-container { top: 10px; bottom: auto; left: 50%; right: auto; transform: translateX(-50%); align-items: center; }
 {% endblock %}
 
 {% block navbar_actions %}{% endblock %}
@@ -1237,7 +1346,7 @@ kbd { font-size: 12px; background: var(--bg3); border: 1px solid var(--border2);
 {% block content %}
 
 <div id="sessionProgressBar"><div id="sessionProgressFill"></div></div>
-<div class="focus-hint">Focus mode. Press F to exit.</div>
+<div class="focus-hint"><span>Focus mode</span><button class="btn btn-ghost btn-xs" onclick="toggleFocusMode()">Exit <kbd>F</kbd></button></div>
 <div class="session-bar">
   <div class="session-info">
     <span class="rec-dot" id="recDot"></span>
@@ -1282,14 +1391,11 @@ kbd { font-size: 12px; background: var(--bg3); border: 1px solid var(--border2);
     <div class="panel-header">
       <span class="panel-title">Transcript</span>
       <!-- Live stats readout -->
-      <div class="tc-stats" style="display:flex;align-items:center;gap:6px;font-family:var(--sans);font-size:12px;color:var(--text3)">
-        <span id="tcWordCount" title="Total words captured" style="color:var(--text3)">0w</span>
-        <span style="opacity:0.3">|</span>
-        <span id="tcSpeakRate" title="Speaking rate (words per minute, last 60s)" style="color:var(--text3)">—</span>
-        <span style="opacity:0.3">|</span>
-        <span id="tcTopKeywords" title="Top keywords in transcript" style="color:var(--text3);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
-        <span style="opacity:0.3">|</span>
-        <span id="tcSpeakerRatio" title="Your speaking share" style="color:var(--text3)"></span>
+      <div class="tc-stats">
+        <span id="tcWordCount" title="Words captured so far">0 words</span>
+        <span id="tcSpeakRate" title="Speaking pace over the last minute, in words per minute">—</span>
+        <span id="tcTopKeywords" title="Words that keep coming up"></span>
+        <span id="tcSpeakerRatio" title="Your share of the talking"></span>
       </div>
       <div class="panel-header-actions">
         <div class="font-controls">
@@ -1301,7 +1407,7 @@ kbd { font-size: 12px; background: var(--bg3); border: 1px solid var(--border2);
         <button class="btn btn-ghost btn-xs" onclick="exportSession()" title="Export session as Markdown">{% include "interview/_icon.html" with name="download" %} Export</button>
         <button class="btn btn-ghost btn-xs" onclick="clearTranscript()" title="Clear transcript" aria-label="Clear transcript">{% include "interview/_icon.html" with name="trash" %}</button>
         <button class="btn btn-ghost btn-xs" id="tcSelectBtn" onclick="toggleSelectMode()" title="Select lines to ask about">{% include "interview/_icon.html" with name="select" %} Select</button>
-        <span id="transcriptCount" style="font-size:12px;color:var(--text3);font-family:var(--sans)">{{ transcripts.count }}</span>
+        <span id="transcriptCount" title="Lines in the transcript" style="font-size:12px;color:var(--text3);font-family:var(--sans)">{{ transcripts.count }}</span>
         <button class="btn btn-ghost btn-xs" id="transcriptMinBtn" onclick="minimizeTranscript()" title="Hide the transcript" aria-label="Hide the transcript">{% include "interview/_icon.html" with name="collapse" %}</button>
       </div>
     </div>
@@ -1365,10 +1471,7 @@ kbd { font-size: 12px; background: var(--bg3); border: 1px solid var(--border2);
     <span class="drag-handle" aria-hidden="true">⠿</span>
     <span class="ai-float-title">Suggested answer</span>
     <div class="ai-float-controls">
-      <input type="range" class="opacity-slider" id="opacitySlider"
-             min="15" max="100" value="90" title="Panel transparency" aria-label="Panel transparency"
-             oninput="setFloatOpacity(this.value)">
-      <button class="float-ctrl-btn" onclick="toggleBionic()" id="bionicToggle" title="Bionic reading">B</button>
+      <button class="float-ctrl-btn" onclick="toggleBionic()" id="bionicToggle" title="Bionic reading: bold the start of each word" aria-label="Bionic reading" aria-pressed="false">B</button>
       <button class="float-ctrl-btn" onclick="adjustAIFontSize(-1)" title="Smaller font">A-</button>
       <button class="float-ctrl-btn" onclick="adjustAIFontSize(1)" title="Larger font">A+</button>
       <button class="float-ctrl-btn" id="regenBtn" onclick="regenAI()" style="display:none" title="Regenerate" aria-label="Regenerate">{% include "interview/_icon.html" with name="refresh" %}</button>
@@ -1382,7 +1485,9 @@ kbd { font-size: 12px; background: var(--bg3); border: 1px solid var(--border2);
   </div>
   <!-- Bionic state sub-bar -->
   <div class="ai-float-sub" id="aiBionicBar">
-    <span style="font-size:12px;color:var(--text3)" id="bionicStatus">Bionic off</span>
+    <span style="font-size:12px;color:var(--text3)" id="bionicStatus">Bionic reading off</span>
+    <label class="opacity-wrap" title="How see-through the answer panel is when it floats over other windows"><span>Opacity</span>
+      <input type="range" class="opacity-slider" id="opacitySlider" min="15" max="100" value="90" aria-label="Panel transparency" oninput="setFloatOpacity(this.value)"></label>
     <span style="display:none;font-size:12px;color:var(--accent2);cursor:pointer" id="showTranscriptBtn" onclick="restoreTranscript()" title="Show the transcript panel">Show transcript</span>
     <span style="font-size:12px;color:var(--text3)" id="dragHint">Drag edge to resize</span>
   </div>
@@ -1438,7 +1543,7 @@ kbd { font-size: 12px; background: var(--bg3); border: 1px solid var(--border2);
         </div>
         <div class="tc-row">
           <span>Interval</span>
-          <select class="tc-select" id="tcIntervalSel" onchange="setTranscribeMode(this.value)">
+          <select class="tc-select" id="tcIntervalSel" aria-label="How often to transcribe" onchange="setTranscribeMode(this.value)">
             <option value="manual">Manual</option>
             <option value="2">2 sec</option>
             <option value="5">5 sec</option>
@@ -1466,7 +1571,7 @@ kbd { font-size: 12px; background: var(--bg3); border: 1px solid var(--border2);
     <button class="fai-btn" id="fAiHelpBtn" onclick="triggerAI()">Get answer</button>
     <div class="ai-split-wrap" id="fConvInsightWrap" style="position:relative;display:inline-flex;flex-shrink:0">
       <button class="fai-btn" id="fConvHelperBtn" onclick="triggerConvHelper()" title="Conversation insights" style="background:var(--bg3);color:var(--text);border-radius:6px 0 0 6px;border-right:none;padding-right:4px">🧠</button>
-      <button class="fai-btn" id="fConvInsightArrow" onclick="toggleConvInsightDropdown(event)" title="Choose insight type" style="background:var(--bg3);color:var(--text);font-size:12px;padding:0 5px;border-radius:0 6px 6px 0;min-width:18px">▾</button>
+      <button class="fai-btn" id="fConvInsightArrow" onclick="toggleConvInsightDropdown(event)" title="Choose insight type" style="background:var(--bg3);color:var(--text);font-size:12px;padding:0 5px;border-radius:0 6px 6px 0;min-width:18px" aria-label="Choose insight type">{% include "interview/_icon.html" with name="chevron-down" %}</button>
     </div>
     <button class="fai-btn" style="background:var(--bg3);color:var(--text2);font-size:12px;padding:2px 6px" onclick="clearInput()" title="Clear input">Clear</button>
     <button class="fai-btn" style="background:var(--bg3);color:var(--text2);font-size:12px;padding:2px 6px" onclick="saveAndClearInput()" title="Save to transcript">Save</button>
@@ -1523,11 +1628,11 @@ kbd { font-size: 12px; background: var(--bg3); border: 1px solid var(--border2);
   <div id="recorderPanelBody" style="padding:12px 16px;display:flex;gap:16px;flex-wrap:wrap;min-width:0;max-width:100%">
 
     <!-- Left: Participants -->
-    <div style="flex:1 1 200px;min-width:0;overflow:hidden">
+    <div style="flex:1 1 340px;min-width:0;overflow:hidden">
       <div style="font-size:12px;font-weight:700;color:var(--text3);margin-bottom:8px">Participants</div>
       <div id="participantsList" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px"></div>
-      <div style="display:flex;gap:6px;min-width:0">
-        <input id="newParticipantName" type="text" class="form-control" aria-label="Participant name" placeholder="Name" style="font-size:12px;padding:4px 8px;flex:1;min-width:0"
+      <div style="display:flex;flex-wrap:wrap;gap:6px;min-width:0">
+        <input id="newParticipantName" type="text" class="form-control" aria-label="Participant name" placeholder="Name" style="font-size:12px;padding:4px 8px;flex:1 1 110px;min-width:110px"
                onkeydown="if(event.key==='Enter')addParticipant()">
         <input id="newParticipantRole" type="text" class="form-control" aria-label="Participant role (optional)" placeholder="Role (optional)" style="font-size:12px;padding:4px 8px;width:120px;flex-shrink:0">
         <button class="btn btn-primary btn-xs" onclick="addParticipant()" style="white-space:nowrap;flex-shrink:0">Add</button>
@@ -1588,14 +1693,14 @@ kbd { font-size: 12px; background: var(--bg3); border: 1px solid var(--border2);
 <!-- Quick Questions strip -->
 <div id="quickQStrip" style="display:none;padding:6px 12px;background:var(--bg2);border-top:1px solid var(--border);overflow-x:auto;white-space:nowrap;scrollbar-width:none">
   <span style="font-size:12.5px;color:var(--text3);margin-right:8px">Quick questions</span>
-  <button class="qq-chip" onclick="quickQ('Explain this concept simply')">explain simply</button>
-  <button class="qq-chip" onclick="quickQ('What are the pros and cons?')">pros &amp; cons</button>
-  <button class="qq-chip" onclick="quickQ('Give me a real-world example')">example</button>
-  <button class="qq-chip" onclick="quickQ('How would you solve this problem step by step?')">step by step</button>
-  <button class="qq-chip" onclick="quickQ('What questions should I ask next?')">follow-ups</button>
-  <button class="qq-chip" onclick="quickQ('Summarize what was just said')">summarize</button>
-  <button class="qq-chip" onclick="quickQ('What are common mistakes to avoid?')">avoid mistakes</button>
-  <button class="qq-chip" onclick="quickQ('What is the best practice here?')">best practice</button>
+  <button class="qq-chip" onclick="quickQ('Explain this concept simply')">Explain simply</button>
+  <button class="qq-chip" onclick="quickQ('What are the pros and cons?')">Pros and cons</button>
+  <button class="qq-chip" onclick="quickQ('Give me a real-world example')">Give an example</button>
+  <button class="qq-chip" onclick="quickQ('How would you solve this problem step by step?')">Step by step</button>
+  <button class="qq-chip" onclick="quickQ('What questions should I ask next?')">Follow-up questions</button>
+  <button class="qq-chip" onclick="quickQ('Summarize what was just said')">Summarize</button>
+  <button class="qq-chip" onclick="quickQ('What are common mistakes to avoid?')">Mistakes to avoid</button>
+  <button class="qq-chip" onclick="quickQ('What is the best practice here?')">Best practice</button>
 </div>
 
 <div class="bottom-bar">
@@ -1605,7 +1710,7 @@ kbd { font-size: 12px; background: var(--bg3); border: 1px solid var(--border2);
   <!-- Conversation Insights split button + dropdown -->
   <div class="ai-split-wrap" id="convInsightWrap" style="position:relative;display:inline-flex;flex-shrink:0">
     <button class="tc-config-btn" id="convHelperBtn" onclick="triggerConvHelper()" title="Conversation insights — analyze the full session" style="background:var(--bg3);border-color:var(--border2);color:var(--text);font-size:15px;border-radius:6px 0 0 6px;border-right:none;padding-right:4px">🧠</button>
-    <button class="tc-config-btn" id="convInsightArrow" onclick="toggleConvInsightDropdown(event)" title="Choose insight type" style="background:var(--bg3);border-color:var(--border2);color:var(--text);font-size:12px;padding:0 5px;border-radius:0 6px 6px 0;min-width:18px">▾</button>
+    <button class="tc-config-btn" id="convInsightArrow" onclick="toggleConvInsightDropdown(event)" title="Choose insight type" style="background:var(--bg3);border-color:var(--border2);color:var(--text);font-size:12px;padding:0 5px;border-radius:0 6px 6px 0;min-width:18px" aria-label="Choose insight type">{% include "interview/_icon.html" with name="chevron-down" %}</button>
     <div class="ai-tpl-dropdown" id="convInsightDropdown" style="min-width:220px;max-height:240px">
       <div class="ai-tpl-header"><span>Insight type</span></div>
       <div id="convInsightList"></div>
@@ -1781,9 +1886,27 @@ function toBionicHTML(text) {
   ).join('\n');
 }
 
+// Bionic emphasis is laid over the formatted answer, so headings, lists and tables stay as they are.
+// Code is left exactly as written.
+function renderBionic(el, text) {
+  if (!window.marked) { el.innerHTML = toBionicHTML(text); return; }
+  renderMarkdown(el, text);
+  const d = el.ownerDocument;
+  const walker = d.createTreeWalker(el, 4 /* text nodes */);
+  const nodes = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (n.nodeValue.trim() && !n.parentElement.closest('code, pre')) nodes.push(n);
+  }
+  nodes.forEach(n => {
+    const holder = d.createElement('span');
+    holder.innerHTML = toBionicHTML(n.nodeValue);
+    n.replaceWith(...holder.childNodes);
+  });
+}
+
 function applyBionicToEl(el) {
   if (!el.dataset.plain) el.dataset.plain = el.textContent;
-  el.innerHTML = toBionicHTML(el.dataset.plain);
+  renderBionic(el, el.dataset.plain);
 }
 
 function removeBionicFromEl(el) {
@@ -1809,22 +1932,22 @@ function toggleBionic() {
   const d = _doc();
   const btn = d.getElementById('bionicToggle');
   const aiPanelEl = d.getElementById('aiPanel');
-  if (btn) { btn.style.background = bionicMode ? 'rgb(var(--accent2-rgb) / 0.4)' : ''; btn.style.color = bionicMode ? 'var(--accent2)' : ''; }
+  if (btn) { btn.classList.toggle('active', bionicMode); btn.setAttribute('aria-pressed', bionicMode ? 'true' : 'false'); }
   if (aiPanelEl) aiPanelEl.classList.toggle('bionic-on', bionicMode);
   const st = d.getElementById('bionicStatus');
-  if (st) st.textContent = 'Bionic ' + (bionicMode ? 'ON' : 'off');
+  if (st) st.textContent = 'Bionic reading ' + (bionicMode ? 'on' : 'off');
 
   d.querySelectorAll('.ai-item-a, .ai-answer').forEach(el => {
     if (bionicMode) applyBionicToEl(el);
     else removeBionicFromEl(el);
   });
-  toast('Bionic reading ' + (bionicMode ? 'ON' : 'OFF'), 'info');
+  toast('Bionic reading ' + (bionicMode ? 'on' : 'off'), 'info');
 }
 
 const ICON_MIC = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V7a3 3 0 0 0-3-3zM6 11a6 6 0 0 0 12 0M12 17v3"/></svg>';
 const ICON_STOP = '<svg class="ic ic-fill" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>';
 // Icons for buttons whose label is rewritten from script
-const ICONS = { select: `{% include "interview/_icon.html" with name="select" %}`, doc: `{% include "interview/_icon.html" with name="doc" %}`, expand: `{% include "interview/_icon.html" with name="expand" %}`, volume: `{% include "interview/_icon.html" with name="volume" %}` };
+const ICONS = { select: `{% include "interview/_icon.html" with name="select" %}`, doc: `{% include "interview/_icon.html" with name="doc" %}`, expand: `{% include "interview/_icon.html" with name="expand" %}`, volume: `{% include "interview/_icon.html" with name="volume" %}`, sparkle: `{% include "interview/_icon.html" with name="sparkle" %}`, edit: `{% include "interview/_icon.html" with name="edit" %}`, trash: `{% include "interview/_icon.html" with name="trash" %}`, copy: `{% include "interview/_icon.html" with name="copy" %}`, thumbUp: `{% include "interview/_icon.html" with name="thumb-up" %}`, thumbDown: `{% include "interview/_icon.html" with name="thumb-down" %}`, bookmark: `{% include "interview/_icon.html" with name="bookmark" %}` };
 const micBtn = document.getElementById('micBtn');
 const recDot = document.getElementById('recDot');
 const aiHelpBtn = document.getElementById('aiHelpBtn');
@@ -2598,7 +2721,7 @@ function renameSpeaker(type, newName) {
   if (!trimmed) return;
   _saveSpeakerName(type, trimmed);
   document.querySelectorAll(`.transcript-entry.${type} .speaker-name-editable`).forEach(el => {
-    el.textContent = trimmed.toUpperCase();
+    el.textContent = trimmed;
     el.title = 'Click to rename';
   });
   toast(`// ${_SPEAKER_DEFAULTS[type] || type} → "${trimmed}"`, 'success', 2500);
@@ -2621,7 +2744,7 @@ function _startSpeakerRename(span, type) {
     const newSpan = document.createElement('span');
     newSpan.className = 'speaker-name-editable';
     newSpan.title = 'Click to rename this speaker';
-    newSpan.textContent = val.toUpperCase();
+    newSpan.textContent = val;
     newSpan.addEventListener('click', e => { e.stopPropagation(); _startSpeakerRename(newSpan, type); });
     if (inp.parentNode) inp.replaceWith(newSpan);
   };
@@ -2657,7 +2780,7 @@ function _updateWordStats(text, type) {
   const wpm = _speakEvents.reduce((s, e) => s + e.words, 0);
   const wcEl = document.getElementById('tcWordCount');
   const srEl = document.getElementById('tcSpeakRate');
-  if (wcEl) wcEl.textContent = _totalWords >= 1000 ? (_totalWords / 1000).toFixed(1) + 'k w' : _totalWords + 'w';
+  if (wcEl) wcEl.textContent = _totalWords >= 1000 ? (_totalWords / 1000).toFixed(1) + 'k words' : _totalWords + (_totalWords === 1 ? ' word' : ' words');
   if (srEl) {
     if (wpm > 0) {
       srEl.textContent = wpm + ' wpm';
@@ -2671,7 +2794,7 @@ function _updateWordStats(text, type) {
   const ratioEl = document.getElementById('tcSpeakerRatio');
   if (ratioEl && (_micWords + _sysWords) > 0) {
     const youPct = Math.round((_micWords / (_micWords + _sysWords)) * 100);
-    ratioEl.textContent = `you ${youPct}%`;
+    ratioEl.textContent = `You ${youPct}%`;
     ratioEl.style.color = youPct > 70 ? 'var(--yellow)' : youPct < 30 ? 'var(--text3)' : 'var(--green)';
     ratioEl.title = `You: ${_micWords}w  Interviewer: ${_sysWords}w`;
   }
@@ -2711,7 +2834,7 @@ function _renderVoiceChips(entryDiv, assignedName) {
 
 function _assignVoiceToEntry(entryDiv, participant) {
   const nameSpan = entryDiv.querySelector('.speaker-name-editable');
-  if (nameSpan) nameSpan.textContent = participant.name.toUpperCase();
+  if (nameSpan) nameSpan.textContent = participant.name;
   entryDiv.style.borderLeftColor = participant.color;
   entryDiv.classList.remove('unassigned-system');
   // Update all chips in this entry
@@ -2791,7 +2914,8 @@ function _refreshAllVoiceChips() {
     const nameSpan = div.querySelector('.speaker-name-editable');
     const assigned = nameSpan ? nameSpan.textContent.trim() : '';
     _renderVoiceChips(div, assigned);
-    if (!assigned || assigned === 'INTERVIEWER' || assigned === 'SYSTEM') {
+    const _a = assigned.toUpperCase();
+    if (!assigned || _a === 'INTERVIEWER' || _a === 'SYSTEM') {
       div.classList.add('unassigned-system');
     }
   });
@@ -2807,7 +2931,7 @@ function addTranscriptEntryUI(text, type, speakerName) {
   const ts = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
   const tone = _detectTone(text);
   const isSystem = type === 'system';
-  div.innerHTML = `<div class="entry-select-cb" title="Select for multi-send">✓</div><div class="speaker"><span class="speaker-name-editable" title="Click to rename this speaker">${escHtml(label.toUpperCase())}</span>${tone ? `<span class="speaker-tone" title="Tone">${tone}</span>` : ''}<span class="entry-ts">${ts}</span></div><div class="text" style="font-size:${transcriptFontSize}px">${escHtml(text)}</div><div class="voice-assign-row"></div><div class="entry-actions"><button class="entry-action-btn" onclick="event.stopPropagation();sendEntryToAI(this)" title="Ask AI about this">✨ Ask AI</button><button class="entry-action-btn" onclick="event.stopPropagation();editTranscriptEntry(this)" title="Edit">✎ Edit</button><button class="entry-action-btn" style="color:var(--red);border-color:rgb(var(--red-rgb) / 0.3)" onclick="event.stopPropagation();deleteTranscriptEntry(this)" title="Delete">✕</button></div>`;
+  div.innerHTML = `<div class="entry-select-cb" title="Select this line">✓</div><div class="speaker"><span class="speaker-name-editable" title="Click to rename this speaker">${escHtml(label)}</span>${tone ? `<span class="speaker-tone" title="Tone of this line">${tone}</span>` : ''}<span class="entry-ts">${ts}</span></div><div class="text" style="font-size:${transcriptFontSize}px">${escHtml(text)}</div><div class="voice-assign-row"></div><div class="entry-actions"><button class="entry-action-btn" onclick="event.stopPropagation();sendEntryToAI(this)" title="Get an answer about this line">${ICONS.sparkle} Ask</button><button class="entry-action-btn" onclick="event.stopPropagation();toggleEntrySelection(this.closest('.transcript-entry'))" title="Select this line to ask about several at once">${ICONS.select} Select</button><button class="entry-action-btn" onclick="event.stopPropagation();editTranscriptEntry(this)" title="Edit this line" aria-label="Edit this line">${ICONS.edit}</button><button class="entry-action-btn entry-action-danger" onclick="event.stopPropagation();deleteTranscriptEntry(this)" title="Delete this line" aria-label="Delete this line">${ICONS.trash}</button></div>`;
   // Populate voice-assign chips for system entries using current participants
   if (isSystem) {
     _renderVoiceChips(div, speakerName);
@@ -3029,7 +3153,7 @@ function editTranscriptEntry(btn) {
   const current = textEl.textContent.trim();
   const input = document.createElement('input');
   Object.assign(input.style, { width:'100%', background:'var(--bg3)', border:'1px solid var(--accent)',
-    borderRadius:'3px', color:'var(--text)', fontFamily:'var(--sans)', fontSize:'12px', padding:'3px 6px' });
+    borderRadius:'8px', color:'var(--text)', fontFamily:'var(--sans)', fontSize: textEl.style.fontSize || '14.5px', padding:'6px 8px' });
   input.value = current;
   textEl.replaceWith(input);
   input.focus(); input.select();
@@ -3098,13 +3222,13 @@ function toggleBookmarkAI(btn) {
     item.dataset.bookmarked = '0';
     item.style.borderLeftColor = '';
     item.style.borderLeftWidth = '';
-    btn.textContent = '🔖';
+    btn.setAttribute('aria-pressed', 'false');
     btn.style.color = '';
   } else {
     item.dataset.bookmarked = '1';
     item.style.borderLeftColor = 'var(--yellow)';
     item.style.borderLeftWidth = '3px';
-    btn.textContent = '⭐';
+    btn.setAttribute('aria-pressed', 'true');
     btn.style.color = 'var(--yellow)';
     toast('Answer bookmarked', 'info', 2000);
   }
@@ -3648,7 +3772,7 @@ function triggerAI(question, fromVoice) {
     const finalAnswer = aiAnswerText.textContent;
     aiAnswerText.dataset.plain = finalAnswer;
     if (bionicMode) {
-      aiAnswerText.innerHTML = toBionicHTML(finalAnswer);
+      renderBionic(aiAnswerText, finalAnswer);
     } else {
       renderMarkdown(aiAnswerText, finalAnswer);
     }
@@ -3659,7 +3783,7 @@ function triggerAI(question, fromVoice) {
     const rs = Math.ceil(wc / 3.5);
     const rt = rs >= 60 ? `${Math.floor(rs/60)}m ${rs%60}s` : `${rs}s`;
     const rtEl = _df.getElementById('aiReadTime');
-    if (rtEl) rtEl.textContent = `${wc}w · ${rt}`;
+    if (rtEl) rtEl.textContent = `${wc} words · ${rt} read`;
   });
 }
 
@@ -3690,11 +3814,11 @@ function archiveAI(question, answer) {
   answerEl.style.fontSize = aiFontSize + 'px';
   answerEl.dataset.plain = answer;
   if (bionicMode) {
-    answerEl.innerHTML = toBionicHTML(answer);
+    renderBionic(answerEl, answer);
   } else {
     renderMarkdown(answerEl, answer);
   }
-  item.innerHTML = `<div class="ai-item-q">Q: ${escHtml(question.slice(0,120))}</div>`;
+  item.innerHTML = `<div class="ai-item-q" title="Click to fold this answer">${escHtml(question.slice(0,120))}</div>`;
   item.appendChild(answerEl);
   const wordCount = answer.trim().split(/\s+/).filter(Boolean).length;
   const readSec = Math.ceil(wordCount / 3.5);
@@ -3702,9 +3826,9 @@ function archiveAI(question, answer) {
   // Confidence score: based on answer length and hedging language
   const hedgeWords = (answer.match(/\b(maybe|perhaps|possibly|might|could|unclear|not sure|depends|varies|uncertain|I think|I believe|probably)\b/gi) || []).length;
   const confScore = Math.max(0, Math.min(100, wordCount >= 80 ? 85 - hedgeWords * 5 : wordCount >= 40 ? 65 - hedgeWords * 5 : 40 - hedgeWords * 5));
-  const confColor = confScore >= 75 ? 'var(--green)' : confScore >= 50 ? 'var(--accent)' : 'var(--yellow)';
-  const confLabel = confScore >= 75 ? 'high' : confScore >= 50 ? 'med' : 'low';
-  item.insertAdjacentHTML('beforeend', `<div class="ai-item-actions"><span style="font-size:12px;font-family:var(--sans);color:var(--text3);margin-right:4px">${wordCount}w · ${readLabel} read</span><span style="font-size:12px;font-family:var(--sans);color:${confColor};border:1px solid ${confColor};border-radius:3px;padding:1px 5px;opacity:0.8" title="Confidence estimate">${confLabel}</span><button class="btn btn-ghost btn-xs" onclick="rateAI(this,1)" title="Good answer">👍</button><button class="btn btn-ghost btn-xs" onclick="rateAI(this,-1)" title="Not helpful">👎</button><button class="btn btn-ghost btn-xs" onclick="toggleBookmarkAI(this)">🔖</button><button class="btn btn-ghost btn-xs" onclick="copyQA(this.closest('.ai-item'))" title="Copy Q+A pair">📋 Q+A</button><button class="btn btn-ghost btn-xs" onclick="copyText(this.closest('.ai-item').querySelector('.ai-item-a').dataset.plain||this.closest('.ai-item').querySelector('.ai-item-a').textContent,'Answer')">Copy</button><button class="btn btn-ghost btn-xs" onclick="speakAI(this.closest('.ai-item').querySelector('.ai-item-a').dataset.plain||this.closest('.ai-item').querySelector('.ai-item-a').textContent,this)">🔊 Speak</button></div>`);
+  const confLabel = confScore >= 75 ? 'high' : confScore >= 50 ? 'medium' : 'low';
+  const _txt = "this.closest('.ai-item').querySelector('.ai-item-a').dataset.plain||this.closest('.ai-item').querySelector('.ai-item-a').textContent";
+  item.insertAdjacentHTML('beforeend', `<div class="ai-item-actions"><span class="ai-info"><span class="ai-meta">${wordCount} words · ${readLabel} read</span><span class="ai-conf ai-conf-${confLabel}" title="An estimate from the length of the answer and how often it hedges">Confidence: ${confLabel}</span></span><span class="ai-btns"><button class="btn btn-ghost btn-xs ai-act" onclick="rateAI(this,1)" title="Helpful" aria-label="Mark as helpful">${ICONS.thumbUp}</button><button class="btn btn-ghost btn-xs ai-act" onclick="rateAI(this,-1)" title="Not helpful" aria-label="Mark as not helpful">${ICONS.thumbDown}</button><button class="btn btn-ghost btn-xs ai-act" onclick="toggleBookmarkAI(this)" title="Bookmark" aria-label="Bookmark this answer" aria-pressed="false">${ICONS.bookmark}</button><button class="btn btn-ghost btn-xs" onclick="copyText(${_txt},'Answer')" title="Copy the answer">${ICONS.copy} Copy</button><button class="btn btn-ghost btn-xs" onclick="copyQA(this.closest('.ai-item'))" title="Copy the question and the answer">Copy Q&amp;A</button><button class="btn btn-ghost btn-xs" onclick="speakAI(${_txt},this)">Read aloud</button></span></div>`);
   // Toggle minimized on click of the question line
   item.querySelector('.ai-item-q').addEventListener('click', () => item.classList.toggle('minimized'));
   hist.prepend(item);
@@ -3872,7 +3996,7 @@ function triggerConvHelper() {
     aiAnswerText.dataset.plain = finalAnswer;
     if (finalAnswer.trim()) {
       if (bionicMode) {
-        aiAnswerText.innerHTML = toBionicHTML(finalAnswer);
+        renderBionic(aiAnswerText, finalAnswer);
       } else {
         renderMarkdown(aiAnswerText, finalAnswer);
       }

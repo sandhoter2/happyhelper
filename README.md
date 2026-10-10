@@ -268,6 +268,8 @@ branch and merge when you are ready.
 
 These are in the code today. They are listed here so nobody is surprised.
 
+The signed-in screens were reviewed one by one; the feature inventory and the list of features that exist in the code but have no screen (or are not saved) are in [docs/ui-audit.md](docs/ui-audit.md).
+
 - **Settings are server-wide and open to every signed-in user.** `/settings/` writes API keys and
   model names to the server's `.env`, and shows a preview of the current keys. On a shared
   deployment this should be limited to staff.
