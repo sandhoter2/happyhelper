@@ -4,13 +4,13 @@ Run with:  python manage.py test interview
 """
 import json
 import uuid
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.models import User
 from django.test import Client, TestCase
 from django.urls import reverse
 
-from .models import InterviewSession, UserProfile
+from .models import InterviewSession, UserDocument, DocumentFolder, UserProfile
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -273,4 +273,133 @@ class ThemeViewTests(TestCase):
         self.assertEqual(r2.json()["theme"], "dark")
         self.user.refresh_from_db()
         self.assertEqual(self.user.profile.theme, "dark")
+
+
+# ─── LlamaParse service unit tests ────────────────────────────────────────────
+
+class LlamaServiceGetParsedMarkdownTests(TestCase):
+    """get_parsed_markdown must call the v2 /result/markdown endpoint."""
+
+    @patch("interview.llama_service.requests.get")
+    def test_calls_result_markdown_endpoint(self, mock_get):
+        """Must call /api/v2/parse/{id}/result/markdown, not ?expand=markdown."""
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"pages": [{"page": 1, "markdown": "# Hello"}]}
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
+
+        from interview import llama_service
+        result = llama_service.get_parsed_markdown("job-123")
+
+        called_url = mock_get.call_args[0][0]
+        self.assertIn("/result/markdown", called_url)
+        self.assertNotIn("expand", str(mock_get.call_args))
+
+    @patch("interview.llama_service.requests.get")
+    def test_returns_joined_pages(self, mock_get):
+        """Must join page markdown strings with double newlines."""
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "pages": [
+                {"page": 1, "markdown": "# Page 1"},
+                {"page": 2, "markdown": "## Page 2"},
+            ]
+        }
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
+
+        from interview import llama_service
+        result = llama_service.get_parsed_markdown("job-456")
+
+        self.assertEqual(result, "# Page 1\n\n## Page 2")
+
+    @patch("interview.llama_service.requests.get")
+    def test_handles_list_response(self, mock_get):
+        """Must handle API returning a bare list instead of {pages:[...]}."""
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = [{"page": 1, "markdown": "# Direct list"}]
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
+
+        from interview import llama_service
+        result = llama_service.get_parsed_markdown("job-789")
+
+        self.assertEqual(result, "# Direct list")
+
+
+# ─── api_document_status view tests ───────────────────────────────────────────
+
+class DocumentStatusViewTests(TestCase):
+    def setUp(self):
+        self.user = make_user(username="docuser", password="pw")
+        self.client.login(username="docuser", password="pw")
+        self.folder = DocumentFolder.objects.create(
+            owner=self.user, name="My Folder"
+        )
+        self.doc = UserDocument.objects.create(
+            owner=self.user,
+            original_filename="test.pdf",
+            llama_job_id="job-abc",
+            llama_file_id="file-abc",
+            status=UserDocument.STATUS_PROCESSING,
+            folder=self.folder,
+        )
+
+    def _get_status(self):
+        return self.client.get(
+            reverse("api_document_status", args=[self.doc.id])
+        )
+
+    @patch("interview.views.llama_service.get_job_status")
+    @patch("interview.views.llama_service.get_parsed_markdown")
+    def test_completed_job_saves_parsed_text(self, mock_markdown, mock_status):
+        """When LlamaParse returns COMPLETED, doc must transition to ready with text."""
+        mock_status.return_value = {"status": "COMPLETED"}
+        mock_markdown.return_value = "# Interview notes\n\nSome content here and more words to pad it out for length."
+
+        r = self._get_status()
+
+        self.assertEqual(r.status_code, 200)
+        self.doc.refresh_from_db()
+        self.assertEqual(self.doc.status, UserDocument.STATUS_READY)
+        self.assertIn("Interview notes", self.doc.parsed_text)
+
+    @patch("interview.views.llama_service.get_job_status")
+    def test_failed_job_sets_error_status(self, mock_status):
+        """When LlamaParse returns FAILED, doc must transition to error."""
+        mock_status.return_value = {"status": "FAILED"}
+
+        r = self._get_status()
+
+        self.assertEqual(r.status_code, 200)
+        self.doc.refresh_from_db()
+        self.assertEqual(self.doc.status, UserDocument.STATUS_ERROR)
+
+    @patch("interview.views.llama_service.get_job_status")
+    def test_api_error_is_logged_not_swallowed(self, mock_status):
+        """When get_job_status raises, error must be logged and doc stays processing."""
+        mock_status.side_effect = Exception("Network error")
+
+        with self.assertLogs("interview.views", level="ERROR") as cm:
+            r = self._get_status()
+
+        self.assertEqual(r.status_code, 200)
+        self.doc.refresh_from_db()
+        # Doc stays processing so client can retry
+        self.assertEqual(self.doc.status, UserDocument.STATUS_PROCESSING)
+        # Error must be logged
+        self.assertTrue(any("Network error" in line or "api_document_status" in line
+                            for line in cm.output))
+
+    @patch("interview.views.llama_service.get_job_status")
+    @patch("interview.views.llama_service.get_parsed_markdown")
+    def test_status_response_includes_cloud_fields(self, mock_markdown, mock_status):
+        """Status response must include llama_cloud_synced and llama_file_id."""
+        mock_status.return_value = {"status": "PENDING"}
+
+        r = self._get_status()
+
+        data = r.json()
+        self.assertIn("llama_cloud_synced", data)
+        self.assertIn("llama_file_id", data)
 
