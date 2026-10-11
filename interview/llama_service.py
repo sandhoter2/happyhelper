@@ -4,7 +4,7 @@ from django.conf import settings
 from llama_cloud import LlamaCloud
 from llama_cloud._exceptions import NotFoundError
 
-SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".doc", ".txt", ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".go", ".rb", ".rs", ".cpp", ".c", ".h", ".cs", ".md"}
+SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".doc", ".txt", ".xlsx", ".xls", ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".go", ".rb", ".rs", ".cpp", ".c", ".h", ".cs", ".md"}
 
 
 def _client() -> LlamaCloud:
@@ -178,4 +178,6 @@ def _guess_mime(filename: str) -> str:
         "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "doc": "application/msword",
         "txt": "text/plain",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "xls": "application/vnd.ms-excel",
     }.get(ext, "application/octet-stream")
