@@ -5346,7 +5346,8 @@ function switchMobileTab(tab) {
     ]);
     if (!docsResp.ok || !sessionDocsResp.ok) return;
     const { documents } = await docsResp.json();
-    const sessionDocs = await sessionDocsResp.json();
+    const sessionData = await sessionDocsResp.json();
+    const sessionDocs = sessionData.documents || [];
     const attachedIds = new Set(sessionDocs.filter(d => d.attached).map(d => d.id));
 
     const list = document.getElementById('docAttachList');
@@ -5410,8 +5411,9 @@ function switchMobileTab(tab) {
   }
 
   // Load badge count on page load (without opening panel)
-  fetch(`/api/session/${SESSION_ID}/documents/`).then(r => r.ok ? r.json() : []).then(docs => {
-    if (Array.isArray(docs)) updateDocBadge(docs.filter(d => d.attached).length);
+  fetch(`/api/session/${SESSION_ID}/documents/`).then(r => r.ok ? r.json() : {documents:[]}).then(data => {
+    const docs = data.documents || [];
+    updateDocBadge(docs.filter(d => d.attached).length);
   }).catch(() => {});
 })();
 
