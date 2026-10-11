@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # build.sh — runs on every Render deployment
-# Flow: install → collectstatic → check DB → migrate → superuser → seed
+# Flow: collectstatic → check DB → migrate → superuser → seed
+# Note: pip install already done in Dockerfile at build time — do NOT repeat here
 set -o errexit
 
-pip install -r requirements.txt
 python manage.py collectstatic --no-input
 
 # ── 1. Check database connection ─────────────────────────────────────────────
