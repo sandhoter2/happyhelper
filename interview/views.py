@@ -20,7 +20,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from .forms import NewSessionForm, UserProfileForm
-from .models import AIMessage, DocumentParserConfig, InterviewSession, MeetingParticipant, SessionDocument, TranscriptEntry, UserDocument, UserProfile, PromptTemplate, QuestionBank
+from .models import AIMessage, DocumentFolder, DocumentParserConfig, InterviewSession, MeetingParticipant, SessionDocument, TranscriptEntry, UserDocument, UserProfile, PromptTemplate, QuestionBank
 from . import llama_service
 
 AI_HELP_DEFAULTS = [
@@ -117,7 +117,7 @@ def signup_view(request):
 def home(request):
     if not request.user.is_authenticated:
         return render(request, "interview/landing.html")
-    sessions = InterviewSession.objects.filter(owner=request.user)
+    sessions = InterviewSession.objects.filter(owner=request.user).select_related("folder")
     active_count = sessions.filter(status=InterviewSession.STATUS_ACTIVE).count()
     ended_count = sessions.filter(status=InterviewSession.STATUS_ENDED).count()
     total_transcripts = TranscriptEntry.objects.filter(session__in=sessions).count()
@@ -125,6 +125,7 @@ def home(request):
     _, sessions_used, session_limit = _check_session_limit(request.user)
     profile = getattr(request.user, "profile", None)
     sessions_remaining = (session_limit - sessions_used) if session_limit else None
+    folders = DocumentFolder.objects.filter(owner=request.user).order_by("name")
     return render(request, "interview/home.html", {
         "sessions": sessions,
         "active_count": active_count,
@@ -135,6 +136,7 @@ def home(request):
         "session_limit": session_limit,
         "sessions_remaining": sessions_remaining,
         "is_free_plan": profile.is_free if profile else True,
+        "folders": folders,
     })
 
 
@@ -162,16 +164,28 @@ def new_session(request):
             "session_limit": limit,
         })
 
+    folders = DocumentFolder.objects.filter(owner=request.user).order_by("name")
     if request.method == "POST":
         form = NewSessionForm(request.POST)
         if form.is_valid():
             session = form.save(commit=False)
             session.owner = request.user
+            folder_id = request.POST.get("folder_id") or None
+            if folder_id:
+                try:
+                    session.folder = DocumentFolder.objects.get(id=folder_id, owner=request.user)
+                except DocumentFolder.DoesNotExist:
+                    pass
             session.save()
             return redirect("live_session", session_id=session.id)
     else:
         form = NewSessionForm(initial=initial)
-    return render(request, "interview/new_session.html", {"form": form, "sessions_used": sessions_used, "session_limit": limit})
+    return render(request, "interview/new_session.html", {
+        "form": form,
+        "sessions_used": sessions_used,
+        "session_limit": limit,
+        "folders": folders,
+    })
 
 
 @login_required
@@ -269,17 +283,29 @@ def api_regenerate_token(request):
 
 @csrf_exempt
 def api_list_sessions(request):
-    """List sessions for the extension picker."""
+    """List sessions for the extension picker. Supports ?folder_id= filter."""
     if (r := _auth_required(request)): return r
     ext_token = request.headers.get('X-Ext-Token', '').strip()
     profile = _profile_for_token(ext_token) if ext_token else None
     user = profile.user if profile else request.user
-    sessions = InterviewSession.objects.filter(owner=user).order_by('-created_at')[:20]
-    return JsonResponse({"sessions": [
-        {"id": str(s.id), "title": s.title, "company": s.company, "status": s.status,
-         "created_at": s.created_at.isoformat() if s.created_at else None}
-        for s in sessions
-    ]})
+    qs = InterviewSession.objects.filter(owner=user).select_related("folder").order_by('-created_at')
+    folder_id = request.GET.get("folder_id") or None
+    if folder_id:
+        qs = qs.filter(folder_id=folder_id)
+    sessions = qs[:50]
+    folders = DocumentFolder.objects.filter(owner=user).order_by("name")
+    return JsonResponse({
+        "sessions": [
+            {
+                "id": str(s.id), "title": s.title, "company": s.company, "status": s.status,
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+                "folder_id": str(s.folder_id) if s.folder_id else None,
+                "folder_name": s.folder.name if s.folder else None,
+            }
+            for s in sessions
+        ],
+        "folders": [{"id": str(f.id), "name": f.name} for f in folders],
+    })
 
 
 @csrf_exempt
@@ -2127,7 +2153,7 @@ def documents_page(request):
 
 @login_required
 def api_documents_list(request):
-    docs = UserDocument.objects.filter(owner=request.user).order_by("-created_at")
+    docs = UserDocument.objects.filter(owner=request.user).select_related("folder").order_by("-created_at")
     config = _get_parser_config()
     total_size = sum(d.size_bytes for d in docs)
     total_pages = sum(d.page_count for d in docs)
@@ -2140,11 +2166,24 @@ def api_documents_list(request):
             "page_count": d.page_count,
             "error_message": d.error_message,
             "created_at": d.created_at.isoformat(),
+            "folder_id": str(d.folder_id) if d.folder_id else None,
+            "folder_name": d.folder.name if d.folder else None,
         }
         for d in docs
     ]
+    folders = DocumentFolder.objects.filter(owner=request.user).order_by("name")
+    folder_data = [
+        {
+            "id": str(f.id),
+            "name": f.name,
+            "llama_index_id": f.llama_index_id,
+            "created_at": f.created_at.isoformat(),
+        }
+        for f in folders
+    ]
     return JsonResponse({
         "documents": data,
+        "folders": folder_data,
         "limits": {
             "max_documents": config.max_documents,
             "max_total_size_mb": config.max_total_size_mb,
@@ -2184,8 +2223,17 @@ def api_document_upload(request):
     if (current_total_size + size_bytes) > config.max_total_size_mb * 1024 * 1024:
         return JsonResponse({"error": f"Total size limit of {config.max_total_size_mb} MB would be exceeded"}, status=400)
 
+    folder = None
+    folder_id = request.POST.get("folder_id") or None
+    if folder_id:
+        try:
+            folder = DocumentFolder.objects.get(id=folder_id, owner=request.user)
+        except DocumentFolder.DoesNotExist:
+            pass
+
     doc = UserDocument.objects.create(
         owner=request.user,
+        folder=folder,
         original_filename=filename,
         size_bytes=size_bytes,
         status=UserDocument.STATUS_PROCESSING,
@@ -2194,8 +2242,16 @@ def api_document_upload(request):
     try:
         job_info = llama_service.upload_file(_io.BytesIO(file_bytes), filename)
         job_id = job_info.get("id") or job_info.get("job_id", "")
+        llama_file_id = job_info.get("file_id", "")
         doc.llama_job_id = job_id
         doc.save(update_fields=["llama_job_id"])
+
+        # If the folder has a cloud directory, add this file to it
+        if folder and folder.llama_directory_id and llama_file_id:
+            try:
+                llama_service.add_file_to_directory(folder.llama_directory_id, llama_file_id)
+            except Exception:
+                pass
 
         final_status = llama_service.poll_until_done(job_id, max_wait=180)
         if final_status in ("SUCCESS", "COMPLETED"):
@@ -2249,6 +2305,94 @@ def api_document_delete(request, document_id):
             pass
     doc.delete()
     return JsonResponse({"ok": True})
+
+
+@login_required
+@require_POST
+def api_folder_create(request):
+    try:
+        body = json.loads(request.body)
+        name = (body.get("name") or "").strip()
+    except (json.JSONDecodeError, AttributeError):
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    if not name:
+        return JsonResponse({"error": "Folder name is required"}, status=400)
+    if DocumentFolder.objects.filter(owner=request.user, name=name).exists():
+        return JsonResponse({"error": "A folder with that name already exists"}, status=400)
+
+    folder = DocumentFolder.objects.create(owner=request.user, name=name)
+
+    # Provision a LlamaIndex Cloud directory + index
+    try:
+        dir_resp = llama_service.create_directory(f"{request.user.username}/{name}")
+        folder.llama_directory_id = dir_resp.get("id", "")
+        idx_resp = llama_service.create_index(folder.llama_directory_id, f"{request.user.username}/{name}")
+        folder.llama_index_id = idx_resp.get("id", "")
+        folder.save(update_fields=["llama_directory_id", "llama_index_id"])
+    except Exception:
+        pass  # Cloud provisioning failure is non-fatal; folder still exists locally
+
+    return JsonResponse({
+        "id": str(folder.id),
+        "name": folder.name,
+        "llama_index_id": folder.llama_index_id,
+        "created_at": folder.created_at.isoformat(),
+    }, status=201)
+
+
+@login_required
+@require_POST
+def api_folder_delete(request, folder_id):
+    folder = get_object_or_404(DocumentFolder, id=folder_id, owner=request.user)
+
+    # Clean up LlamaIndex Cloud resources
+    if folder.llama_index_id:
+        try:
+            llama_service.delete_index(folder.llama_index_id)
+        except Exception:
+            pass
+    if folder.llama_directory_id:
+        try:
+            llama_service.delete_directory(folder.llama_directory_id)
+        except Exception:
+            pass
+
+    # Delete associated LlamaParse jobs
+    for doc in folder.documents.all():
+        if doc.llama_job_id:
+            try:
+                llama_service.delete_job(doc.llama_job_id)
+            except Exception:
+                pass
+
+    folder.delete()  # cascades to documents (SET_NULL), not deletes them
+    return JsonResponse({"ok": True})
+
+
+@login_required
+@require_POST
+def api_document_move(request, document_id):
+    doc = get_object_or_404(UserDocument, id=document_id, owner=request.user)
+    try:
+        body = json.loads(request.body)
+        folder_id = body.get("folder_id")  # None to unassign
+    except (json.JSONDecodeError, AttributeError):
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    folder = None
+    if folder_id:
+        try:
+            folder = DocumentFolder.objects.get(id=folder_id, owner=request.user)
+        except DocumentFolder.DoesNotExist:
+            return JsonResponse({"error": "Folder not found"}, status=404)
+
+    doc.folder = folder
+    doc.save(update_fields=["folder"])
+    return JsonResponse({
+        "id": str(doc.id),
+        "folder_id": str(folder.id) if folder else None,
+        "folder_name": folder.name if folder else None,
+    })
 
 
 @login_required

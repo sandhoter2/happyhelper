@@ -3,10 +3,11 @@
 
 {% block content %}
 <style>
-  .doc-page { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
-  .doc-header { margin-bottom: 28px; }
-  .doc-header h1 { font-size: 28px; font-weight: 800; margin-bottom: 6px; }
-  .doc-header p { color: var(--text2); font-size: 14px; max-width: 60ch; }
+  .doc-page { max-width: 960px; margin: 0 auto; padding: 32px 24px 64px; }
+  .doc-header { margin-bottom: 24px; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .doc-header-left h1 { font-size: 28px; font-weight: 800; margin-bottom: 4px; }
+  .doc-header-left p { color: var(--text2); font-size: 14px; max-width: 60ch; }
+  .doc-header-actions { display: flex; gap: 8px; flex-shrink: 0; }
   .usage-bar-wrap { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px 20px; margin-bottom: 24px; display: flex; gap: 24px; flex-wrap: wrap; }
   .usage-item { flex: 1; min-width: 140px; }
   .usage-label { font-size: 12px; color: var(--text3); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
@@ -21,31 +22,57 @@
   .upload-zone-icon { font-size: 36px; margin-bottom: 10px; }
   .upload-zone-text { font-weight: 600; margin-bottom: 4px; }
   .upload-zone-sub { font-size: 13px; color: var(--text3); }
+  .upload-zone-controls { margin-top: 14px; display: flex; align-items: center; justify-content: center; gap: 10px; }
   .upload-zone input[type=file] { display: none; }
-  .doc-list { display: flex; flex-direction: column; gap: 10px; }
-  .doc-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 14px 18px; display: flex; align-items: center; gap: 14px; }
-  .doc-icon { font-size: 24px; flex-shrink: 0; }
+  .folder-section { margin-bottom: 24px; }
+  .folder-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .folder-heading-icon { font-size: 16px; }
+  .folder-heading-name { font-weight: 700; font-size: 15px; flex: 1; }
+  .folder-heading-index { font-size: 12px; color: var(--text3); background: var(--bg3); padding: 2px 8px; border-radius: 99px; }
+  .folder-heading-badge { font-size: 11px; color: var(--brand); background: rgb(var(--brand-rgb,99 102 241)/.12); padding: 2px 7px; border-radius: 99px; }
+  .doc-list { display: flex; flex-direction: column; gap: 8px; }
+  .doc-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 12px 16px; display: flex; align-items: center; gap: 12px; }
+  .doc-icon { font-size: 22px; flex-shrink: 0; }
   .doc-info { flex: 1; min-width: 0; }
   .doc-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .doc-meta { font-size: 12px; color: var(--text3); margin-top: 2px; }
+  .doc-folder-tag { font-size: 11px; background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; margin-left: 4px; color: var(--text3); }
   .doc-status { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 99px; }
   .doc-status.ready { background: rgb(16 185 129 / .12); color: #10b981; }
   .doc-status.processing { background: rgb(245 158 11 / .12); color: #f59e0b; }
   .doc-status.pending { background: rgb(148 163 184 / .12); color: var(--text3); }
   .doc-status.error { background: rgb(239 68 68 / .12); color: #ef4444; }
-  .doc-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .doc-actions { display: flex; gap: 4px; flex-shrink: 0; }
   .empty-state { text-align: center; color: var(--text3); padding: 48px 0; }
   .empty-state-icon { font-size: 40px; margin-bottom: 12px; }
   .upload-progress { margin-bottom: 24px; display: none; }
   .upload-progress-bar { height: 6px; border-radius: 99px; background: var(--bg3); overflow: hidden; margin-top: 8px; }
   .upload-progress-fill { height: 100%; background: var(--brand); border-radius: 99px; width: 0; transition: width .5s; }
   .upload-status-text { font-size: 13px; color: var(--text2); }
+  /* Folder creation modal */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 1000; display: flex; align-items: center; justify-content: center; }
+  .modal-box { background: var(--bg1); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 28px 28px 24px; width: 100%; max-width: 400px; box-shadow: 0 24px 60px rgba(0,0,0,.3); }
+  .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 18px; }
+  .modal-box label { display: block; font-size: 13px; font-weight: 600; color: var(--text2); margin-bottom: 6px; }
+  .modal-box input[type=text] { width: 100%; box-sizing: border-box; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+  /* Move dropdown */
+  .move-dropdown { position: relative; }
+  .move-dropdown-menu { position: absolute; right: 0; top: calc(100% + 4px); background: var(--bg1); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: 0 8px 24px rgba(0,0,0,.2); z-index: 100; min-width: 180px; padding: 4px 0; }
+  .move-dropdown-item { padding: 8px 14px; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+  .move-dropdown-item:hover { background: var(--bg2); }
+  .move-dropdown-item.active { color: var(--brand); }
 </style>
 
 <div class="doc-page">
   <div class="doc-header">
-    <h1>Documents</h1>
-    <p>Upload PDFs, Word docs, and code files. Attach them to sessions so the AI has your document context when answering.</p>
+    <div class="doc-header-left">
+      <h1>Documents</h1>
+      <p>Upload PDFs, Word docs, and code files. Organise into folders for LlamaIndex-powered retrieval. Attach documents to sessions for AI context.</p>
+    </div>
+    <div class="doc-header-actions">
+      <button class="btn btn-secondary btn-sm" id="newFolderBtn">📁 New Folder</button>
+    </div>
   </div>
 
   <!-- Usage bar -->
@@ -78,11 +105,17 @@
     <div class="upload-zone-icon">📎</div>
     <div class="upload-zone-text">Drop files here or click to browse</div>
     <div class="upload-zone-sub">PDF, DOCX, TXT, Python, JavaScript, TypeScript, and more</div>
+    <div class="upload-zone-controls" onclick.stop>
+      <label style="font-size:13px;color:var(--text2);font-weight:600;margin:0">Upload to folder:</label>
+      <select id="uploadFolderSelect" class="form-control" style="width:auto;min-width:160px;font-size:13px;" onclick="event.stopPropagation()">
+        <option value="">None (unfiled)</option>
+      </select>
+    </div>
     <input type="file" id="fileInput" multiple accept=".pdf,.docx,.doc,.txt,.py,.js,.ts,.jsx,.tsx,.java,.go,.rb,.rs,.cpp,.c,.h,.cs,.md">
   </div>
 
-  <!-- Document list -->
-  <div class="doc-list" id="docList">
+  <!-- Document list grouped by folder -->
+  <div id="docListWrap">
     <div class="empty-state" id="emptyState">
       <div class="empty-state-icon">📂</div>
       <div>No documents yet. Upload one above.</div>
@@ -90,8 +123,22 @@
   </div>
 </div>
 
+<!-- New Folder Modal -->
+<div class="modal-overlay" id="folderModal" style="display:none">
+  <div class="modal-box">
+    <div class="modal-title">Create Folder</div>
+    <label for="folderNameInput">Folder name</label>
+    <input type="text" id="folderNameInput" class="form-control" placeholder="e.g. Interview Prep" autocomplete="off" maxlength="255">
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="folderModalCancel">Cancel</button>
+      <button class="btn btn-primary" id="folderModalCreate">Create</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const CSRF = '{{ csrf_token }}';
+let _state = { folders: [], documents: [] };
 
 function fileIcon(name) {
   const ext = name.split('.').pop().toLowerCase();
@@ -106,25 +153,19 @@ function fmtSize(bytes) {
 }
 
 function updateProgress(pct, text) {
-  const wrap = document.getElementById('uploadProgress');
-  wrap.style.display = 'block';
+  document.getElementById('uploadProgress').style.display = 'block';
   document.getElementById('uploadProgressFill').style.width = pct + '%';
   document.getElementById('uploadStatusText').textContent = text;
 }
-
 function hideProgress() {
   document.getElementById('uploadProgress').style.display = 'none';
   document.getElementById('uploadProgressFill').style.width = '0';
 }
 
 function renderDocs(data) {
-  const list = document.getElementById('docList');
-  const empty = document.getElementById('emptyState');
-  const docs = data.documents;
-  const limits = data.limits;
-  const usage = data.usage;
+  _state = { folders: data.folders || [], documents: data.documents || [] };
+  const limits = data.limits, usage = data.usage;
 
-  // Update usage bars
   document.getElementById('usageDocCount').textContent = usage.document_count;
   document.getElementById('usageDocMax').textContent = `/ ${limits.max_documents}`;
   document.getElementById('usageSizeMb').textContent = usage.total_size_mb.toFixed(2);
@@ -132,105 +173,254 @@ function renderDocs(data) {
   document.getElementById('usagePages').textContent = usage.total_pages;
   document.getElementById('usagePagesMax').textContent = `/ ${limits.max_total_pages}`;
 
-  function barClass(pct) { return pct >= 90 ? 'danger' : pct >= 70 ? 'warn' : ''; }
-  const docPct = Math.min(100, (usage.document_count / limits.max_documents) * 100);
-  const sizePct = Math.min(100, (usage.total_size_mb / limits.max_total_size_mb) * 100);
-  const pagesPct = Math.min(100, (usage.total_pages / limits.max_total_pages) * 100);
-  document.getElementById('usageDocBar').style.width = docPct + '%';
-  document.getElementById('usageDocBar').className = 'progress-fill ' + barClass(docPct);
-  document.getElementById('usageSizeBar').style.width = sizePct + '%';
-  document.getElementById('usageSizeBar').className = 'progress-fill ' + barClass(sizePct);
-  document.getElementById('usagePagesBar').style.width = pagesPct + '%';
-  document.getElementById('usagePagesBar').className = 'progress-fill ' + barClass(pagesPct);
+  const bar = (pct) => pct >= 90 ? 'danger' : pct >= 70 ? 'warn' : '';
+  const docPct = Math.min(100,(usage.document_count/limits.max_documents)*100);
+  const sizePct = Math.min(100,(usage.total_size_mb/limits.max_total_size_mb)*100);
+  const pagesPct = Math.min(100,(usage.total_pages/limits.max_total_pages)*100);
+  document.getElementById('usageDocBar').style.width = docPct+'%';
+  document.getElementById('usageDocBar').className = 'progress-fill '+bar(docPct);
+  document.getElementById('usageSizeBar').style.width = sizePct+'%';
+  document.getElementById('usageSizeBar').className = 'progress-fill '+bar(sizePct);
+  document.getElementById('usagePagesBar').style.width = pagesPct+'%';
+  document.getElementById('usagePagesBar').className = 'progress-fill '+bar(pagesPct);
 
-  // Remove old cards (keep emptyState)
-  list.querySelectorAll('.doc-card').forEach(el => el.remove());
+  // Update folder select in upload zone
+  const sel = document.getElementById('uploadFolderSelect');
+  const prevVal = sel.value;
+  while (sel.options.length > 1) sel.remove(1);
+  _state.folders.forEach(f => {
+    const opt = new Option(f.name, f.id);
+    sel.add(opt);
+  });
+  if (prevVal) sel.value = prevVal;
 
-  if (!docs.length) {
+  const wrap = document.getElementById('docListWrap');
+  const empty = document.getElementById('emptyState');
+  wrap.querySelectorAll('.folder-section').forEach(el => el.remove());
+
+  if (!_state.documents.length && !_state.folders.length) {
     empty.style.display = 'block';
     return;
   }
   empty.style.display = 'none';
 
-  docs.forEach(doc => {
-    const card = document.createElement('div');
-    card.className = 'doc-card';
-    card.dataset.id = doc.id;
-    const statusLabel = { ready: 'Ready', processing: 'Processing…', pending: 'Pending', error: 'Error' }[doc.status] || doc.status;
-    card.innerHTML = `
-      <div class="doc-icon">${fileIcon(doc.filename)}</div>
-      <div class="doc-info">
-        <div class="doc-name" title="${doc.filename}">${doc.filename}</div>
-        <div class="doc-meta">${fmtSize(doc.size_bytes)}${doc.page_count ? ' · ' + doc.page_count + ' pages' : ''}${doc.status === 'error' ? ' · ' + (doc.error_message || 'Unknown error') : ''}</div>
-      </div>
-      <span class="doc-status ${doc.status}">${statusLabel}</span>
-      <div class="doc-actions">
-        <button class="btn btn-ghost btn-sm btn-delete" data-id="${doc.id}" title="Delete">🗑</button>
-      </div>
-    `;
-    list.appendChild(card);
+  // Group docs by folder
+  const byFolder = {};
+  const unfiled = [];
+  _state.documents.forEach(doc => {
+    if (doc.folder_id) {
+      if (!byFolder[doc.folder_id]) byFolder[doc.folder_id] = [];
+      byFolder[doc.folder_id].push(doc);
+    } else {
+      unfiled.push(doc);
+    }
   });
 
-  list.querySelectorAll('.btn-delete').forEach(btn => {
-    btn.addEventListener('click', () => deleteDoc(btn.dataset.id));
+  // Render each folder section
+  _state.folders.forEach(folder => {
+    const docs = byFolder[folder.id] || [];
+    const sec = document.createElement('div');
+    sec.className = 'folder-section';
+    sec.dataset.folderId = folder.id;
+    const hasIndex = !!folder.llama_index_id;
+    sec.innerHTML = `
+      <div class="folder-heading">
+        <span class="folder-heading-icon">📁</span>
+        <span class="folder-heading-name">${escHtml(folder.name)}</span>
+        <span class="folder-heading-index">${docs.length} doc${docs.length!==1?'s':''}</span>
+        ${hasIndex ? `<span class="folder-heading-badge">LlamaIndex</span>` : ''}
+        <button class="btn btn-ghost btn-xs btn-delete-folder" data-id="${folder.id}" title="Delete folder">🗑</button>
+      </div>
+      <div class="doc-list folder-doc-list"></div>
+    `;
+    const docList = sec.querySelector('.doc-list');
+    docs.forEach(doc => docList.appendChild(makeDocCard(doc)));
+    wrap.appendChild(sec);
   });
+
+  // Unfiled docs section
+  if (unfiled.length) {
+    const sec = document.createElement('div');
+    sec.className = 'folder-section';
+    sec.innerHTML = `
+      <div class="folder-heading">
+        <span class="folder-heading-icon">📂</span>
+        <span class="folder-heading-name">Unfiled</span>
+        <span class="folder-heading-index">${unfiled.length} doc${unfiled.length!==1?'s':''}</span>
+      </div>
+      <div class="doc-list folder-doc-list"></div>
+    `;
+    const docList = sec.querySelector('.doc-list');
+    unfiled.forEach(doc => docList.appendChild(makeDocCard(doc)));
+    wrap.appendChild(sec);
+  }
+
+  wrap.querySelectorAll('.btn-delete').forEach(btn => btn.addEventListener('click', () => deleteDoc(btn.dataset.id)));
+  wrap.querySelectorAll('.btn-move').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); showMoveMenu(btn, btn.dataset.id); }));
+  wrap.querySelectorAll('.btn-delete-folder').forEach(btn => btn.addEventListener('click', () => deleteFolder(btn.dataset.id)));
+}
+
+function makeDocCard(doc) {
+  const card = document.createElement('div');
+  card.className = 'doc-card';
+  card.dataset.id = doc.id;
+  const statusLabel = { ready: 'Ready', processing: 'Processing…', pending: 'Pending', error: 'Error' }[doc.status] || doc.status;
+  card.innerHTML = `
+    <div class="doc-icon">${fileIcon(doc.filename)}</div>
+    <div class="doc-info">
+      <div class="doc-name" title="${escHtml(doc.filename)}">${escHtml(doc.filename)}</div>
+      <div class="doc-meta">${fmtSize(doc.size_bytes)}${doc.page_count ? ' · '+doc.page_count+' pages' : ''}${doc.status==='error'?' · '+(doc.error_message||'Unknown error'):''}</div>
+    </div>
+    <span class="doc-status ${doc.status}">${statusLabel}</span>
+    <div class="doc-actions">
+      <div class="move-dropdown">
+        <button class="btn btn-ghost btn-sm btn-move" data-id="${doc.id}" title="Move to folder">📂</button>
+      </div>
+      <button class="btn btn-ghost btn-sm btn-delete" data-id="${doc.id}" title="Delete">🗑</button>
+    </div>
+  `;
+  return card;
+}
+
+function escHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+let _activeMoveMenu = null;
+function showMoveMenu(btn, docId) {
+  closeActiveMoveMenu();
+  const menu = document.createElement('div');
+  menu.className = 'move-dropdown-menu';
+  const doc = _state.documents.find(d => d.id === docId);
+  const currentFolderId = doc ? doc.folder_id : null;
+
+  const noneItem = document.createElement('div');
+  noneItem.className = 'move-dropdown-item' + (!currentFolderId ? ' active' : '');
+  noneItem.innerHTML = '<span>📂</span> Unfiled';
+  noneItem.addEventListener('click', () => { moveDoc(docId, null); closeActiveMoveMenu(); });
+  menu.appendChild(noneItem);
+
+  _state.folders.forEach(f => {
+    const item = document.createElement('div');
+    item.className = 'move-dropdown-item' + (currentFolderId === f.id ? ' active' : '');
+    item.innerHTML = `<span>📁</span> ${escHtml(f.name)}`;
+    item.addEventListener('click', () => { moveDoc(docId, f.id); closeActiveMoveMenu(); });
+    menu.appendChild(item);
+  });
+
+  btn.closest('.move-dropdown').appendChild(menu);
+  _activeMoveMenu = menu;
+  setTimeout(() => document.addEventListener('click', closeActiveMoveMenu, { once: true }), 0);
+}
+
+function closeActiveMoveMenu() {
+  if (_activeMoveMenu) { _activeMoveMenu.remove(); _activeMoveMenu = null; }
 }
 
 async function loadDocs() {
   const resp = await fetch('/api/documents/');
   if (!resp.ok) return;
-  const data = await resp.json();
-  renderDocs(data);
+  renderDocs(await resp.json());
 }
 
-async function uploadFile(file) {
+async function uploadFile(file, folderId) {
   updateProgress(10, `Uploading ${file.name}…`);
   const fd = new FormData();
   fd.append('file', file);
+  if (folderId) fd.append('folder_id', folderId);
   const resp = await fetch('/api/documents/upload/', {
-    method: 'POST',
-    headers: { 'X-CSRFToken': CSRF },
-    body: fd,
+    method: 'POST', headers: { 'X-CSRFToken': CSRF }, body: fd,
   });
   const data = await resp.json();
-  if (!resp.ok) {
-    hideProgress();
-    toast(data.error || 'Upload failed', 'error');
-    return;
-  }
+  if (!resp.ok) { hideProgress(); toast(data.error || 'Upload failed', 'error'); return; }
   updateProgress(90, 'Parsing document…');
-  // Final status already returned synchronously (we poll inside the view)
-  updateProgress(100, data.status === 'ready' ? 'Done!' : (data.status === 'error' ? 'Error: ' + (data.error_message || '') : 'Processing…'));
+  updateProgress(100, data.status === 'ready' ? 'Done!' : (data.status === 'error' ? 'Error: '+(data.error_message||'') : 'Processing…'));
   setTimeout(hideProgress, 1800);
   await loadDocs();
   if (data.status === 'ready') toast(file.name + ' ready', 'success');
-  else if (data.status === 'error') toast('Parse error: ' + (data.error_message || ''), 'error');
+  else if (data.status === 'error') toast('Parse error: '+(data.error_message||''), 'error');
 }
 
 async function deleteDoc(id) {
   if (!confirm('Delete this document?')) return;
-  const resp = await fetch(`/api/documents/${id}/delete/`, {
-    method: 'POST',
-    headers: { 'X-CSRFToken': CSRF },
-  });
+  const resp = await fetch(`/api/documents/${id}/delete/`, { method: 'POST', headers: { 'X-CSRFToken': CSRF } });
   if (resp.ok) { toast('Document deleted', 'success'); await loadDocs(); }
   else toast('Delete failed', 'error');
 }
+
+async function moveDoc(docId, folderId) {
+  const resp = await fetch(`/api/documents/${docId}/move/`, {
+    method: 'POST',
+    headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ folder_id: folderId }),
+  });
+  if (resp.ok) { await loadDocs(); }
+  else toast('Move failed', 'error');
+}
+
+async function createFolder(name) {
+  const resp = await fetch('/api/folders/create/', {
+    method: 'POST',
+    headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  const data = await resp.json();
+  if (!resp.ok) { toast(data.error || 'Failed to create folder', 'error'); return; }
+  toast(`Folder "${data.name}" created`, 'success');
+  await loadDocs();
+}
+
+async function deleteFolder(id) {
+  const folder = _state.folders.find(f => f.id === id);
+  const name = folder ? folder.name : 'this folder';
+  const docCount = _state.documents.filter(d => d.folder_id === id).length;
+  const msg = docCount
+    ? `Delete folder "${name}"? The ${docCount} document${docCount!==1?'s':''} inside will become unfiled.`
+    : `Delete folder "${name}"?`;
+  if (!confirm(msg)) return;
+  const resp = await fetch(`/api/folders/${id}/delete/`, { method: 'POST', headers: { 'X-CSRFToken': CSRF } });
+  if (resp.ok) { toast('Folder deleted', 'success'); await loadDocs(); }
+  else toast('Delete failed', 'error');
+}
+
+// Folder modal
+const folderModal = document.getElementById('folderModal');
+document.getElementById('newFolderBtn').addEventListener('click', () => {
+  document.getElementById('folderNameInput').value = '';
+  folderModal.style.display = 'flex';
+  setTimeout(() => document.getElementById('folderNameInput').focus(), 50);
+});
+document.getElementById('folderModalCancel').addEventListener('click', () => folderModal.style.display = 'none');
+document.getElementById('folderModalCreate').addEventListener('click', async () => {
+  const name = document.getElementById('folderNameInput').value.trim();
+  if (!name) return;
+  folderModal.style.display = 'none';
+  await createFolder(name);
+});
+document.getElementById('folderNameInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('folderModalCreate').click();
+  if (e.key === 'Escape') folderModal.style.display = 'none';
+});
+folderModal.addEventListener('click', e => { if (e.target === folderModal) folderModal.style.display = 'none'; });
 
 // Drop zone
 const zone = document.getElementById('uploadZone');
 const fileInput = document.getElementById('fileInput');
 
-zone.addEventListener('click', () => fileInput.click());
+zone.addEventListener('click', e => {
+  if (e.target.closest('select') || e.target.closest('label')) return;
+  fileInput.click();
+});
 zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
 zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
 zone.addEventListener('drop', async e => {
-  e.preventDefault();
-  zone.classList.remove('drag-over');
-  for (const file of e.dataTransfer.files) await uploadFile(file);
+  e.preventDefault(); zone.classList.remove('drag-over');
+  const folderId = document.getElementById('uploadFolderSelect').value || null;
+  for (const file of e.dataTransfer.files) await uploadFile(file, folderId);
 });
 fileInput.addEventListener('change', async () => {
-  for (const file of fileInput.files) await uploadFile(file);
+  const folderId = document.getElementById('uploadFolderSelect').value || null;
+  for (const file of fileInput.files) await uploadFile(file, folderId);
   fileInput.value = '';
 });
 

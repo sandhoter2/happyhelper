@@ -110,6 +110,10 @@ class InterviewSession(models.Model):
     session_type = models.CharField(
         max_length=20, choices=SESSION_TYPE_CHOICES, default=SESSION_TYPE_INTERVIEW
     )
+    folder = models.ForeignKey(
+        "DocumentFolder", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="sessions",
+    )
     meeting_agenda = models.TextField(blank=True, help_text="Agenda items for the meeting.")
     prep_notes = models.TextField(
         blank=True,
@@ -325,6 +329,24 @@ class QuestionBank(models.Model):
         return f"[{self.category}] {self.question[:80]}"
 
 
+class DocumentFolder(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="document_folders")
+    name = models.CharField(max_length=255)
+    # LlamaIndex Cloud identifiers (populated once the cloud dir/index is created)
+    llama_directory_id = models.CharField(max_length=128, blank=True)
+    llama_index_id = models.CharField(max_length=128, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+        unique_together = [("owner", "name")]
+
+    def __str__(self):
+        return f"{self.name} ({self.owner.username})"
+
+
 class DocumentParserConfig(models.Model):
     PARSER_LLAMAPARSE = "llamaparse"
     PARSER_CHOICES = [
@@ -365,6 +387,10 @@ class UserDocument(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="documents")
+    folder = models.ForeignKey(
+        "DocumentFolder", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="documents",
+    )
     original_filename = models.CharField(max_length=255)
     file = models.FileField(upload_to=user_document_upload_path, blank=True)
     size_bytes = models.BigIntegerField(default=0)

@@ -194,6 +194,15 @@ body.os-mac #dlMacBtn small, body.os-win #dlWinBtn small { color: var(--on-brand
           <button type="button" class="filter-tab" data-filter="active" onclick="setFilter('active',this)">Live</button>
           <button type="button" class="filter-tab" data-filter="ended" onclick="setFilter('ended',this)">Ended</button>
         </div>
+        {% if folders %}
+        <div class="filter-tabs" role="group" aria-label="Filter by folder" style="margin-top:0">
+          <button type="button" class="filter-tab active" data-folder-filter="all" onclick="setFolderFilter('all',this)">📂 All folders</button>
+          <button type="button" class="filter-tab" data-folder-filter="" onclick="setFolderFilter('',this)">Unfiled</button>
+          {% for f in folders %}
+          <button type="button" class="filter-tab" data-folder-filter="{{ f.id }}" onclick="setFolderFilter('{{ f.id }}',this)">📁 {{ f.name }}</button>
+          {% endfor %}
+        </div>
+        {% endif %}
 
         <div class="view-toggle" role="group" aria-label="Layout">
           <button type="button" class="view-btn active" id="viewGrid" onclick="setView('grid')" title="Cards" aria-label="Show as cards">
@@ -222,7 +231,7 @@ body.os-mac #dlMacBtn small, body.os-win #dlWinBtn small { color: var(--on-brand
             </thead>
             <tbody id="tableBody">
               {% for s in sessions %}
-              <tr class="trow" data-status="{{ s.status }}" data-title="{{ s.title|lower }}" data-company="{{ s.company|lower }}" data-date="{{ s.created_at|date:'U' }}" onclick="rowClick(event,'{{ s.id }}','{{ s.status }}')">
+              <tr class="trow" data-status="{{ s.status }}" data-title="{{ s.title|lower }}" data-company="{{ s.company|lower }}" data-date="{{ s.created_at|date:'U' }}" data-folder="{{ s.folder_id|default:'' }}" onclick="rowClick(event,'{{ s.id }}','{{ s.status }}')">
                 <td>
                   <div style="display:flex;align-items:center;gap:12px">
                     <div class="session-icon">{% if s.company %}{{ s.company|slice:":1"|upper }}{% else %}{{ s.title|slice:":1"|upper }}{% endif %}</div>
@@ -270,7 +279,7 @@ body.os-mac #dlMacBtn small, body.os-win #dlWinBtn small { color: var(--on-brand
       <div id="gridView">
         <div class="sessions-grid" id="sessionsGrid">
           {% for s in sessions %}
-          <article class="session-card" data-status="{{ s.status }}" data-title="{{ s.title|lower }}" data-company="{{ s.company|lower }}" data-date="{{ s.created_at|date:'U' }}">
+          <article class="session-card" data-status="{{ s.status }}" data-title="{{ s.title|lower }}" data-company="{{ s.company|lower }}" data-date="{{ s.created_at|date:'U' }}" data-folder="{{ s.folder_id|default:'' }}">
             <div class="session-card-top">
               <div style="min-width:0">
                 <div class="session-card-title" title="{{ s.title }}">{{ s.title }}</div>
@@ -360,6 +369,7 @@ body.os-mac #dlMacBtn small, body.os-win #dlWinBtn small { color: var(--on-brand
 
 <script>
 let currentFilter = 'all';
+let currentFolderFilter = 'all';
 let currentView = 'grid';
 
 function setView(v) {
@@ -392,12 +402,21 @@ function filterRows() {
 function matchesFilter(el, q) {
   const matchFilter = currentFilter === 'all' || el.dataset.status === currentFilter;
   const matchSearch = !q || el.dataset.title.includes(q) || (el.dataset.company || '').includes(q);
-  return matchFilter && matchSearch;
+  const elFolder = el.dataset.folder || '';
+  const matchFolder = currentFolderFilter === 'all' || elFolder === currentFolderFilter;
+  return matchFilter && matchSearch && matchFolder;
 }
 
 function setFilter(f, el) {
   currentFilter = f;
-  document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('[data-filter]').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  filterRows();
+}
+
+function setFolderFilter(f, el) {
+  currentFolderFilter = f;
+  document.querySelectorAll('[data-folder]').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
   filterRows();
 }
