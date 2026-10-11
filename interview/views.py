@@ -2,7 +2,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import timezone
+from datetime import timezone, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -2279,6 +2279,13 @@ def api_document_upload(request):
 def api_document_status(request, document_id):
     doc = get_object_or_404(UserDocument, id=document_id, owner=request.user)
 
+    # Mark stale uploads (processing > 30 min with no job ID) as error
+    if doc.status == UserDocument.STATUS_PROCESSING and not doc.llama_job_id:
+        if (dj_timezone.now() - doc.created_at) > timedelta(minutes=30):
+            doc.status = UserDocument.STATUS_ERROR
+            doc.error_message = "Upload timed out: no parse job was created"
+            doc.save(update_fields=["status", "error_message"])
+
     # If still processing and we have a job ID, check LlamaParse now
     if doc.status == UserDocument.STATUS_PROCESSING and doc.llama_job_id:
         try:
@@ -2310,7 +2317,7 @@ def api_document_status(request, document_id):
                     except Exception:
                         logger.exception("Retry add_file_to_directory failed for doc %s", doc.id)
 
-            elif remote in ("FAILED", "CANCELLED", "CANCELED", "ERROR"):
+            elif remote in ("FAILED", "CANCELLED", "CANCELED", "ERROR", "NOT_FOUND"):
                 doc.status = UserDocument.STATUS_ERROR
                 doc.error_message = f"LlamaParse job ended with status: {remote}"
                 doc.save(update_fields=["status", "error_message"])

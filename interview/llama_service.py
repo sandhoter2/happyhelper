@@ -43,9 +43,12 @@ def upload_file(file_obj, filename: str) -> dict:
 
 
 def get_job_status(job_id: str) -> dict:
-    """Poll job status. Returns dict with 'status' key."""
+    """Poll job status. Returns dict with 'status' key.
+    Returns {"status": "NOT_FOUND"} if the job no longer exists (expired)."""
     url = f"{LLAMAPARSE_BASE}/api/v2/parse/{job_id}"
     resp = requests.get(url, headers=_headers(), timeout=30)
+    if resp.status_code == 404:
+        return {"status": "NOT_FOUND"}
     resp.raise_for_status()
     data = resp.json()
     # v2 status values: PENDING, IN_PROGRESS, COMPLETED, FAILED, CANCELLED
