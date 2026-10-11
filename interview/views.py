@@ -2343,6 +2343,11 @@ def api_document_delete(request, document_id):
             llama_service.delete_job(doc.llama_job_id)
         except Exception:
             pass
+    if doc.llama_file_id:
+        try:
+            llama_service.delete_file(doc.llama_file_id)
+        except Exception:
+            logger.exception("delete_file failed for doc %s file %s", doc.id, doc.llama_file_id)
     doc.delete()
     return JsonResponse({"ok": True})
 
@@ -2402,13 +2407,18 @@ def api_folder_delete(request, folder_id):
         except Exception:
             pass
 
-    # Delete associated LlamaParse jobs
+    # Delete associated LlamaParse jobs and LlamaIndex Cloud file objects
     for doc in folder.documents.all():
         if doc.llama_job_id:
             try:
                 llama_service.delete_job(doc.llama_job_id)
             except Exception:
                 pass
+        if doc.llama_file_id:
+            try:
+                llama_service.delete_file(doc.llama_file_id)
+            except Exception:
+                logger.exception("delete_file failed for doc %s file %s", doc.id, doc.llama_file_id)
 
     folder.delete()  # cascades to documents (SET_NULL), not deletes them
     return JsonResponse({"ok": True})
@@ -2431,12 +2441,21 @@ def api_document_move(request, document_id):
         except DocumentFolder.DoesNotExist:
             return JsonResponse({"error": "Folder not found"}, status=404)
 
+    old_folder = doc.folder
+
+    # Remove from old directory in LlamaIndex Cloud before reassigning
+    if old_folder and old_folder != folder and old_folder.llama_directory_id and doc.llama_file_id:
+        try:
+            llama_service.remove_file_from_directory(old_folder.llama_directory_id, doc.llama_file_id)
+        except Exception:
+            logger.exception("remove_file_from_directory failed for doc %s dir %s",
+                             doc.id, old_folder.llama_directory_id)
+
     doc.folder = folder
-    if not folder:
-        doc.llama_cloud_synced = False  # removed from folder, mark as unsynced
+    doc.llama_cloud_synced = False  # will be set True below if sync succeeds
     doc.save(update_fields=["folder", "llama_cloud_synced"])
 
-    # Add to LlamaIndex Cloud directory when moving into a folder
+    # Add to new directory in LlamaIndex Cloud
     if folder and folder.llama_directory_id and doc.llama_file_id:
         try:
             llama_service.add_file_to_directory(folder.llama_directory_id, doc.llama_file_id)

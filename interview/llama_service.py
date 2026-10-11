@@ -142,6 +142,20 @@ def delete_directory(directory_id: str) -> bool:
     return resp.status_code in (200, 204, 404)
 
 
+def delete_file(file_id: str) -> bool:
+    """Delete an uploaded file from LlamaIndex Cloud. Returns True on success."""
+    url = f"{LLAMAPARSE_BASE}/api/v1/beta/files/{file_id}"
+    resp = requests.delete(url, headers=_headers(), timeout=30)
+    return resp.status_code in (200, 204, 404)
+
+
+def remove_file_from_directory(directory_id: str, file_id: str) -> bool:
+    """Remove a file from a cloud directory (without deleting the file itself)."""
+    url = f"{LLAMAPARSE_BASE}/api/v1/beta/directories/{directory_id}/files/{file_id}"
+    resp = requests.delete(url, headers=_headers(), timeout=30)
+    return resp.status_code in (200, 204, 404)
+
+
 # ── Index management ─────────────────────────────────────────────────────────
 
 def create_index(directory_id: str, name: str) -> dict:
