@@ -2205,7 +2205,6 @@ def api_documents_list(request):
 @login_required
 @require_POST
 def api_document_upload(request):
-    import io as _io
     import os as _os
     config = _get_parser_config()
 
@@ -2222,8 +2221,7 @@ def api_document_upload(request):
     if existing_docs.count() >= config.max_documents:
         return JsonResponse({"error": f"Document limit reached ({config.max_documents} max)"}, status=400)
 
-    file_bytes = upload.read()
-    size_bytes = len(file_bytes)
+    size_bytes = upload.size
     current_total_size = sum(d.size_bytes for d in existing_docs)
     if (current_total_size + size_bytes) > config.max_total_size_mb * 1024 * 1024:
         return JsonResponse({"error": f"Total size limit of {config.max_total_size_mb} MB would be exceeded"}, status=400)
@@ -2245,7 +2243,7 @@ def api_document_upload(request):
     )
 
     try:
-        job_info = llama_service.upload_file(_io.BytesIO(file_bytes), filename)
+        job_info = llama_service.upload_file(upload, filename)
         job_id = job_info.get("id") or job_info.get("job_id", "")
         llama_file_id = job_info.get("file_id", "")
         doc.llama_job_id = job_id
