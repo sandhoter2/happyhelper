@@ -1,7 +1,10 @@
 import json
+import logging
 import os
 import uuid
 from datetime import timezone
+
+logger = logging.getLogger(__name__)
 
 from django.db import models
 from django.db.models import Q
@@ -2245,14 +2248,16 @@ def api_document_upload(request):
         job_id = job_info.get("id") or job_info.get("job_id", "")
         llama_file_id = job_info.get("file_id", "")
         doc.llama_job_id = job_id
-        doc.save(update_fields=["llama_job_id"])
+        doc.llama_file_id = llama_file_id
+        doc.save(update_fields=["llama_job_id", "llama_file_id"])
 
         # If the folder has a cloud directory, add this file to it
         if folder and folder.llama_directory_id and llama_file_id:
             try:
                 llama_service.add_file_to_directory(folder.llama_directory_id, llama_file_id)
             except Exception:
-                pass
+                logger.exception("add_file_to_directory failed for doc %s dir %s file %s",
+                                 doc.id, folder.llama_directory_id, llama_file_id)
     except Exception as exc:
         doc.status = UserDocument.STATUS_ERROR
         doc.error_message = str(exc)
@@ -2339,19 +2344,22 @@ def api_folder_create(request):
     # Provision a LlamaIndex Cloud directory + index
     # Name format: username__folderuuid — globally unique and identifiable in LlamaIndex Cloud
     llama_name = f"{request.user.username}__{folder.id}"
+    llama_error = None
     try:
         dir_resp = llama_service.create_directory(llama_name)
         folder.llama_directory_id = dir_resp.get("id", "")
         idx_resp = llama_service.create_index(folder.llama_directory_id, llama_name)
         folder.llama_index_id = idx_resp.get("id", "")
         folder.save(update_fields=["llama_directory_id", "llama_index_id"])
-    except Exception:
-        pass  # Cloud provisioning failure is non-fatal; folder still exists locally
+    except Exception as e:
+        llama_error = str(e)
+        logger.exception("LlamaIndex Cloud provisioning failed for folder %s", folder.id)
 
     return JsonResponse({
         "id": str(folder.id),
         "name": folder.name,
         "llama_index_id": folder.llama_index_id,
+        "llama_error": llama_error,
         "created_at": folder.created_at.isoformat(),
     }, status=201)
 
@@ -2404,6 +2412,15 @@ def api_document_move(request, document_id):
 
     doc.folder = folder
     doc.save(update_fields=["folder"])
+
+    # Add to LlamaIndex Cloud directory when moving into a folder
+    if folder and folder.llama_directory_id and doc.llama_file_id:
+        try:
+            llama_service.add_file_to_directory(folder.llama_directory_id, doc.llama_file_id)
+        except Exception:
+            logger.exception("add_file_to_directory failed on move for doc %s dir %s",
+                             doc.id, folder.llama_directory_id)
+
     return JsonResponse({
         "id": str(doc.id),
         "folder_id": str(folder.id) if folder else None,

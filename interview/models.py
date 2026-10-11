@@ -396,6 +396,7 @@ class UserDocument(models.Model):
     size_bytes = models.BigIntegerField(default=0)
     page_count = models.IntegerField(default=0)
     llama_job_id = models.CharField(max_length=128, blank=True)
+    llama_file_id = models.CharField(max_length=128, blank=True)
     parsed_text = models.TextField(blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
     error_message = models.TextField(blank=True)

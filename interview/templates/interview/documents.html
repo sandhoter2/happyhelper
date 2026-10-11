@@ -413,7 +413,12 @@ async function createFolder(name) {
   });
   const data = await resp.json();
   if (!resp.ok) { toast(data.error || 'Failed to create folder', 'error'); return; }
-  toast(`Folder "${data.name}" created`, 'success');
+  if (data.llama_error) {
+    console.warn('LlamaIndex Cloud provisioning error:', data.llama_error);
+    toast(`Folder created (cloud sync failed: ${data.llama_error})`, 'warn');
+  } else {
+    toast(`Folder "${data.name}" created`, 'success');
+  }
   await loadDocs();
 }
 
