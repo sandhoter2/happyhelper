@@ -2198,7 +2198,7 @@ def api_document_upload(request):
         doc.save(update_fields=["llama_job_id"])
 
         final_status = llama_service.poll_until_done(job_id, max_wait=180)
-        if final_status == "SUCCESS":
+        if final_status in ("SUCCESS", "COMPLETED"):
             markdown = llama_service.get_parsed_markdown(job_id)
             page_count = llama_service.estimate_page_count(markdown)
             current_total_pages = sum(d.page_count for d in existing_docs.exclude(id=doc.id))

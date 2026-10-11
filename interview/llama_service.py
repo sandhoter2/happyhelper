@@ -1,9 +1,13 @@
-"""LlamaParse REST API wrapper for document upload, status polling, and deletion."""
+"""LlamaParse REST API v2 wrapper for document upload, status polling, and deletion.
+
+v1 (/api/parsing/upload) was deprecated and returns 410 Gone.
+v2 workflow: POST /api/v1/beta/files → POST /api/v2/parse → GET /api/v2/parse/{id}
+"""
 import time
 import requests
 from django.conf import settings
 
-LLAMAPARSE_BASE = "https://api.cloud.llamaindex.ai/api/parsing"
+LLAMAPARSE_BASE = "https://api.cloud.llamaindex.ai"
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".doc", ".txt", ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".go", ".rb", ".rs", ".cpp", ".c", ".h", ".cs", ".md"}
 
 
@@ -12,40 +16,65 @@ def _headers():
 
 
 def upload_file(file_obj, filename: str) -> dict:
-    """Upload a file to LlamaParse. Returns the job dict with 'id' and 'status'."""
-    url = f"{LLAMAPARSE_BASE}/upload"
-    files = {"file": (filename, file_obj, _guess_mime(filename))}
-    resp = requests.post(url, headers=_headers(), files=files, timeout=60)
+    """Upload a file and start a parse job. Returns job dict with 'id' and 'status'."""
+    # Step 1: upload file to get a file_id
+    files_url = f"{LLAMAPARSE_BASE}/api/v1/beta/files"
+    resp = requests.post(
+        files_url,
+        headers=_headers(),
+        files={"file": (filename, file_obj, _guess_mime(filename))},
+        data={"purpose": "parse"},
+        timeout=60,
+    )
     resp.raise_for_status()
-    return resp.json()
+    file_id = resp.json()["id"]
+
+    # Step 2: start a parse job
+    parse_url = f"{LLAMAPARSE_BASE}/api/v2/parse"
+    resp = requests.post(
+        parse_url,
+        headers={**_headers(), "Content-Type": "application/json"},
+        json={"file_id": file_id, "tier": "fast", "version": "latest"},
+        timeout=60,
+    )
+    resp.raise_for_status()
+    job = resp.json()
+    return {"id": job["id"], "status": job.get("status", "PENDING")}
 
 
 def get_job_status(job_id: str) -> dict:
     """Poll job status. Returns dict with 'status' key."""
-    url = f"{LLAMAPARSE_BASE}/job/{job_id}"
-    resp = requests.get(url, headers=_headers(), timeout=30)
-    resp.raise_for_status()
-    return resp.json()
-
-
-def get_parsed_markdown(job_id: str) -> str:
-    """Fetch parsed markdown result once job is SUCCESS."""
-    url = f"{LLAMAPARSE_BASE}/job/{job_id}/result/markdown"
+    url = f"{LLAMAPARSE_BASE}/api/v2/parse/{job_id}"
     resp = requests.get(url, headers=_headers(), timeout=30)
     resp.raise_for_status()
     data = resp.json()
-    return data.get("markdown", "")
+    # v2 status values: PENDING, IN_PROGRESS, COMPLETED, FAILED, CANCELLED
+    return {"status": data.get("status", "PENDING"), **data}
+
+
+def get_parsed_markdown(job_id: str) -> str:
+    """Fetch parsed markdown result once job is COMPLETED."""
+    url = f"{LLAMAPARSE_BASE}/api/v2/parse/{job_id}"
+    resp = requests.get(url, headers=_headers(), params={"expand": "markdown"}, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+    # v2 returns markdown under data.markdown.pages[].markdown
+    markdown_obj = data.get("markdown")
+    if not markdown_obj:
+        return ""
+    pages = markdown_obj.get("pages", [])
+    return "\n\n".join(p.get("markdown", "") for p in pages)
 
 
 def delete_job(job_id: str) -> bool:
     """Delete a LlamaParse job and its data. Returns True on success."""
-    url = f"{LLAMAPARSE_BASE}/job/{job_id}"
+    url = f"{LLAMAPARSE_BASE}/api/v2/parse/{job_id}"
     resp = requests.delete(url, headers=_headers(), timeout=30)
     return resp.status_code in (200, 204, 404)
 
 
 def poll_until_done(job_id: str, max_wait: int = 120) -> str:
-    """Poll until job status is SUCCESS or ERROR. Returns final status string."""
+    """Poll until job status is terminal. Returns normalized status string."""
     deadline = time.time() + max_wait
     while time.time() < deadline:
         try:
@@ -54,7 +83,8 @@ def poll_until_done(job_id: str, max_wait: int = 120) -> str:
             time.sleep(5)
             continue
         status = info.get("status", "").upper()
-        if status in ("SUCCESS", "ERROR", "CANCELED"):
+        # v2 terminal states
+        if status in ("COMPLETED", "FAILED", "CANCELLED", "SUCCESS", "ERROR", "CANCELED"):
             return status
         time.sleep(4)
     return "TIMEOUT"
