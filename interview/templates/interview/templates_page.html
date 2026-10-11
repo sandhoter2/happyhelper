@@ -78,7 +78,7 @@
       </thead>
       <tbody id="tplBody">
         {% for t in templates %}
-        <tr data-id="{{ t.pk }}" data-type="{{ t.template_type }}" data-name="{{ t.name|lower }}" data-desc="{{ t.description|lower }}">
+        <tr data-id="{{ t.pk }}" data-type="{{ t.template_type }}" data-name="{{ t.name|lower }}" data-desc="{{ t.description|lower }}" data-is-default="{{ t.is_default|yesno:'true,false' }}">
           <td class="icon-cell">{{ t.icon }}</td>
           <td style="font-weight:600;color:var(--text)">{{ t.name }}</td>
           <td>
@@ -99,7 +99,7 @@
             {% endif %}
           </td>
           <td class="actions-cell">
-            <button class="btn btn-secondary btn-sm" onclick="editTemplate({{ t.pk }}, '{{ t.icon|escapejs }}', '{{ t.name|escapejs }}', '{{ t.description|escapejs }}', '{{ t.template_type }}', `{{ t.prompt|escapejs }}`, {{ t.is_active|yesno:'true,false' }}, {{ t.order }})">Edit</button>
+            <button class="btn btn-secondary btn-sm" onclick="editTemplate({{ t.pk }}, '{{ t.icon|escapejs }}', '{{ t.name|escapejs }}', '{{ t.description|escapejs }}', '{{ t.template_type }}', `{{ t.prompt|escapejs }}`, {{ t.is_active|yesno:'true,false' }}, {{ t.order }}, {{ t.is_default|yesno:'true,false' }})">Edit</button>
             <button class="btn btn-danger btn-sm" aria-label="Delete {{ t.name }}" onclick="deleteTemplate({{ t.pk }}, '{{ t.name|escapejs }}')">Delete</button>
           </td>
         </tr>
@@ -142,6 +142,7 @@
     <div class="form-group">
       <label for="fPrompt">Instruction (added before the question)</label>
       <textarea id="fPrompt" placeholder="Leave blank for no special formatting"></textarea>
+      <div class="form-hint" style="margin-top:5px;">Use <code>{job_title}</code> to insert the session's role or meeting title.</div>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -153,9 +154,12 @@
         <label for="fActive" style="margin:0;color:var(--text);cursor:pointer;">Show this template in sessions</label>
       </div>
     </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="closeTplModal()">Cancel</button>
-      <button class="btn btn-primary" onclick="saveTemplate()">Save template</button>
+    <div class="modal-footer" style="justify-content:space-between;">
+      <button class="btn btn-secondary" id="resetBtn" onclick="resetTemplate()" style="display:none;">Reset to default</button>
+      <div style="display:flex;gap:8px;margin-left:auto;">
+        <button class="btn btn-secondary" onclick="closeTplModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveTemplate()">Save template</button>
+      </div>
     </div>
   </div>
 </div>
@@ -191,6 +195,7 @@ function openTplModal(reset=true) {
     document.getElementById('fPrompt').value = '';
     document.getElementById('fOrder').value = '0';
     document.getElementById('fActive').checked = true;
+    document.getElementById('resetBtn').style.display = 'none';
   }
   document.getElementById('tplModal').classList.add('open');
 }
@@ -203,7 +208,7 @@ function closeModalOutside(e) {
   if (e.target === document.getElementById('tplModal')) closeTplModal();
 }
 
-function editTemplate(id, icon, name, desc, type, prompt, isActive, order) {
+function editTemplate(id, icon, name, desc, type, prompt, isActive, order, isDefault) {
   document.getElementById('modalTitle').textContent = 'Edit template';
   document.getElementById('editId').value = id;
   document.getElementById('fIcon').value = icon;
@@ -213,7 +218,27 @@ function editTemplate(id, icon, name, desc, type, prompt, isActive, order) {
   document.getElementById('fPrompt').value = prompt;
   document.getElementById('fOrder').value = order;
   document.getElementById('fActive').checked = isActive;
+  document.getElementById('resetBtn').style.display = isDefault ? '' : 'none';
   openTplModal(false);
+}
+
+async function resetTemplate() {
+  const id = document.getElementById('editId').value;
+  if (!id) return;
+  if (!confirm('Reset this template to its original default? Your changes to the prompt, description, and icon will be lost.')) return;
+  const res = await fetch(`/api/templates/${id}/reset/`, {
+    method: 'POST',
+    headers: { 'X-CSRFToken': CSRF },
+  });
+  if (res.ok) {
+    const data = await res.json();
+    document.getElementById('fPrompt').value = data.prompt;
+    document.getElementById('fDesc').value = data.description;
+    document.getElementById('fIcon').value = data.icon;
+    toast('Template reset to default', 'success');
+  } else {
+    toast('Could not reset this template', 'error');
+  }
 }
 
 async function saveTemplate() {

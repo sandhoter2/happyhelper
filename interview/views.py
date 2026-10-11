@@ -1812,7 +1812,14 @@ def templates_page(request):
             PromptTemplate.objects.create(owner=user, template_type="ai_help", **tpl)
         for tpl in MEETING_AI_DEFAULTS:
             PromptTemplate.objects.create(owner=user, template_type="meeting_ai", **tpl)
+    default_keys = {
+        ("ai_help", d["name"]) for d in AI_HELP_DEFAULTS
+    } | {
+        ("meeting_ai", d["name"]) for d in MEETING_AI_DEFAULTS
+    }
     templates = PromptTemplate.objects.filter(owner=user)
+    for t in templates:
+        t.is_default = (t.template_type, t.name) in default_keys
     return render(request, "interview/templates_page.html", {"templates": templates})
 
 
@@ -1891,6 +1898,33 @@ def api_template_delete(request, template_id):
     t = get_object_or_404(PromptTemplate, pk=template_id, owner=request.user)
     t.delete()
     return JsonResponse({"status": "deleted"})
+
+
+@login_required
+@require_POST
+def api_template_reset(request, template_id):
+    from interview.management.commands.seed_templates import AI_HELP_DEFAULTS, MEETING_AI_DEFAULTS
+    t = get_object_or_404(PromptTemplate, pk=template_id, owner=request.user)
+    defaults_map = {
+        (PromptTemplate.TYPE_AI_HELP, d["name"]): d for d in AI_HELP_DEFAULTS
+    }
+    defaults_map.update({
+        (PromptTemplate.TYPE_MEETING_AI, d["name"]): d for d in MEETING_AI_DEFAULTS
+    })
+    key = (t.template_type, t.name)
+    if key not in defaults_map:
+        return JsonResponse({"error": "No default found for this template"}, status=404)
+    original = defaults_map[key]
+    t.prompt = original.get("prompt", "")
+    t.description = original.get("description", "")
+    t.icon = original.get("icon", "✨")
+    t.save(update_fields=["prompt", "description", "icon"])
+    return JsonResponse({
+        "status": "reset",
+        "prompt": t.prompt,
+        "description": t.description,
+        "icon": t.icon,
+    })
 
 
 @login_required

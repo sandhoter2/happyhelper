@@ -1855,6 +1855,7 @@ body.tc-select-mode .transcript-entry.selected::before, .transcript-entry.select
 {% include "interview/_markdown.html" %}
 <script>
 const SESSION_ID = "{{ session.id }}";
+const SESSION_TITLE = "{{ session.title|escapejs }}";
 const LANGUAGE = "{{ session.language }}";
 const SESSION_TYPE = "{{ session.session_type }}";
 
@@ -3816,7 +3817,8 @@ _loadConvTemplates();
 function _applyTemplate(question) {
   const tpl = _getActiveTpl();
   if (!tpl.prompt) return question;
-  return `[INSTRUCTION: ${tpl.prompt}]\n\n${question}`;
+  const resolvedPrompt = tpl.prompt.replace(/\{job_title\}/g, SESSION_TITLE);
+  return `[INSTRUCTION: ${resolvedPrompt}]\n\n${question}`;
 }
 
 // ── AI HELP ───────────────────────────────────────────────────────────────────
