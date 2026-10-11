@@ -320,7 +320,28 @@ function closeActiveMoveMenu() {
 async function loadDocs() {
   const resp = await fetch('/api/documents/');
   if (!resp.ok) return;
-  renderDocs(await resp.json());
+  const data = await resp.json();
+  renderDocs(data);
+  // Auto-poll any docs still processing
+  (data.documents || []).filter(d => d.status === 'processing' && d.id).forEach(d => pollDoc(d.id));
+}
+
+const _polling = new Set();
+function pollDoc(docId) {
+  if (_polling.has(docId)) return;
+  _polling.add(docId);
+  const iv = setInterval(async () => {
+    try {
+      const sr = await fetch(`/api/documents/${docId}/status/`);
+      if (!sr.ok) { clearInterval(iv); _polling.delete(docId); return; }
+      const sd = await sr.json();
+      if (sd.status === 'ready' || sd.status === 'error') {
+        clearInterval(iv);
+        _polling.delete(docId);
+        await loadDocs();
+      }
+    } catch (_) {}
+  }, 4000);
 }
 
 async function uploadFile(file, folderId) {
@@ -333,10 +354,36 @@ async function uploadFile(file, folderId) {
   });
   const data = await resp.json();
   if (!resp.ok) { hideProgress(); toast(data.error || 'Upload failed', 'error'); return; }
-  updateProgress(90, 'Parsing document…');
+
+  // Poll until the server finishes parsing (avoids Render's 30s request timeout)
+  if (data.status === 'processing' && data.id) {
+    updateProgress(50, 'Parsing document…');
+    await loadDocs(); // show the doc in processing state right away
+    let dots = 0;
+    await new Promise(resolve => {
+      const iv = setInterval(async () => {
+        dots = (dots + 1) % 4;
+        updateProgress(50 + dots * 10, 'Parsing' + '.'.repeat(dots + 1));
+        try {
+          const sr = await fetch(`/api/documents/${data.id}/status/`);
+          if (!sr.ok) return;
+          const sd = await sr.json();
+          if (sd.status === 'ready' || sd.status === 'error') {
+            clearInterval(iv);
+            data.status = sd.status;
+            data.error_message = sd.error_message;
+            await loadDocs();
+            resolve();
+          }
+        } catch (_) {}
+      }, 4000);
+    });
+  } else {
+    await loadDocs();
+  }
+
   updateProgress(100, data.status === 'ready' ? 'Done!' : (data.status === 'error' ? 'Error: '+(data.error_message||'') : 'Processing…'));
   setTimeout(hideProgress, 1800);
-  await loadDocs();
   if (data.status === 'ready') toast(file.name + ' ready', 'success');
   else if (data.status === 'error') toast('Parse error: '+(data.error_message||''), 'error');
 }

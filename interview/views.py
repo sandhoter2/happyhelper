@@ -3,6 +3,7 @@ import os
 import uuid
 from datetime import timezone
 
+from django.db import models
 from django.db.models import Q
 
 import groq as groq_lib
@@ -2252,27 +2253,12 @@ def api_document_upload(request):
                 llama_service.add_file_to_directory(folder.llama_directory_id, llama_file_id)
             except Exception:
                 pass
-
-        final_status = llama_service.poll_until_done(job_id, max_wait=180)
-        if final_status in ("SUCCESS", "COMPLETED"):
-            markdown = llama_service.get_parsed_markdown(job_id)
-            page_count = llama_service.estimate_page_count(markdown)
-            current_total_pages = sum(d.page_count for d in existing_docs.exclude(id=doc.id))
-            if (current_total_pages + page_count) > config.max_total_pages:
-                llama_service.delete_job(job_id)
-                doc.delete()
-                return JsonResponse({"error": f"Page limit of {config.max_total_pages} would be exceeded"}, status=400)
-            doc.parsed_text = markdown
-            doc.page_count = page_count
-            doc.status = UserDocument.STATUS_READY
-        else:
-            doc.status = UserDocument.STATUS_ERROR
-            doc.error_message = f"LlamaParse job ended with status: {final_status}"
     except Exception as exc:
         doc.status = UserDocument.STATUS_ERROR
         doc.error_message = str(exc)
+        doc.save()
 
-    doc.save()
+    # Return immediately — client polls api_document_status until ready/error
     return JsonResponse({
         "id": str(doc.id),
         "filename": doc.original_filename,
@@ -2280,12 +2266,40 @@ def api_document_upload(request):
         "size_bytes": doc.size_bytes,
         "page_count": doc.page_count,
         "error_message": doc.error_message,
-    }, status=201 if doc.status == UserDocument.STATUS_READY else 202)
+    }, status=202)
 
 
 @login_required
 def api_document_status(request, document_id):
     doc = get_object_or_404(UserDocument, id=document_id, owner=request.user)
+
+    # If still processing and we have a job ID, check LlamaParse now
+    if doc.status == UserDocument.STATUS_PROCESSING and doc.llama_job_id:
+        try:
+            config = _get_parser_config()
+            info = llama_service.get_job_status(doc.llama_job_id)
+            remote = info.get("status", "").upper()
+            if remote in ("COMPLETED", "SUCCESS"):
+                markdown = llama_service.get_parsed_markdown(doc.llama_job_id)
+                page_count = llama_service.estimate_page_count(markdown)
+                existing_pages = UserDocument.objects.filter(
+                    owner=request.user, status=UserDocument.STATUS_READY
+                ).exclude(id=doc.id).aggregate(t=models.Sum("page_count"))["t"] or 0
+                if (existing_pages + page_count) > config.max_total_pages:
+                    llama_service.delete_job(doc.llama_job_id)
+                    doc.delete()
+                    return JsonResponse({"error": "Page limit exceeded"}, status=400)
+                doc.parsed_text = markdown
+                doc.page_count = page_count
+                doc.status = UserDocument.STATUS_READY
+                doc.save(update_fields=["parsed_text", "page_count", "status"])
+            elif remote in ("FAILED", "CANCELLED", "CANCELED", "ERROR"):
+                doc.status = UserDocument.STATUS_ERROR
+                doc.error_message = f"LlamaParse job ended with status: {remote}"
+                doc.save(update_fields=["status", "error_message"])
+        except Exception:
+            pass  # keep status=processing; client will retry
+
     return JsonResponse({
         "id": str(doc.id),
         "status": doc.status,
