@@ -1230,7 +1230,7 @@ def _get_session_document_context(session: InterviewSession) -> str:
         doc = sd.document
         text = doc.parsed_text.strip()
         if text:
-            parts.append(f"[Document: {doc.original_filename}]\n{text[:4000]}")
+            parts.append(f"[Document: {doc.original_filename}]\n{text[:12000]}")
     return "\n\n".join(parts)
 
 
@@ -1305,7 +1305,12 @@ def _build_system_prompt(session: InterviewSession, document_context: str = "") 
         if session.prep_notes:
             parts.append(f"\nInterview preparation notes:\n{session.prep_notes[:1500]}")
     if document_context:
-        parts.append(f"\n\n--- Attached Document Context ---\n{document_context}\n--- End Document Context ---")
+        parts.append(
+            f"\n\n--- Attached Documents (USE THESE AS PRIMARY REFERENCE) ---\n"
+            f"The user has attached the following documents. You MUST draw on them when answering. "
+            f"Quote or paraphrase specific details from these documents in your responses.\n\n"
+            f"{document_context}\n--- End Attached Documents ---"
+        )
     return "\n".join(parts)
 
 
