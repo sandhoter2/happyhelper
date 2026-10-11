@@ -133,9 +133,12 @@
           <a href="/" class="only-mobile">Sessions</a>
           <a href="/templates/" class="only-mobile">Templates</a>
           <a href="/documents/" class="only-mobile">Documents</a>
+          <a href="/feedback/" class="only-mobile">Open Tickets</a>
           <a href="/profile/">Profile</a>
           <a href="/settings/">Settings</a>
+          <a href="/feedback/">Open Tickets</a>
           <a href="/pricing/">Plans and billing</a>
+          {% if user.is_superuser %}<a href="/admin-portal/feedback/">Admin: Tickets</a>{% endif %}
           <hr>
           <form method="post" action="/logout/" style="margin:0">
             {% csrf_token %}

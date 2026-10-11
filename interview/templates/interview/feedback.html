@@ -1,0 +1,142 @@
+{% extends "interview/base.html" %}
+{% block title %}Open Tickets — HappyHelper{% endblock %}
+
+{% block content %}
+<style>
+  .fb-page { max-width: 860px; margin: 0 auto; padding: 32px 24px 48px; }
+  .fb-header { margin-bottom: 28px; }
+  .fb-header h1 { font-size: 28px; font-weight: 800; }
+  .fb-header p { color: var(--text2); font-size: 14px; margin-top: 4px; max-width: 60ch; }
+  .fb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+  .fb-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; }
+  .fb-card h2 { font-size: 17px; font-weight: 700; margin-bottom: 16px; }
+  .form-group { margin-bottom: 14px; }
+  .form-group label { display: block; font-size: 13px; font-weight: 600; color: var(--text2); margin-bottom: 5px; }
+  .form-group input, .form-group textarea, .form-group select {
+    width: 100%; background: var(--bg); border: 1px solid var(--border2); border-radius: var(--radius);
+    color: var(--text); padding: 9px 12px; font-size: 14px; font-family: inherit;
+  }
+  [data-theme="light"] .form-group input,
+  [data-theme="light"] .form-group textarea,
+  [data-theme="light"] .form-group select { background: var(--bg2); border-color: var(--border3); }
+  .form-group textarea { resize: vertical; min-height: 100px; line-height: 1.5; }
+  .form-group input:focus, .form-group textarea:focus, .form-group select:focus {
+    outline: none; border-color: var(--accent); box-shadow: var(--ring);
+  }
+  /* Ticket list */
+  .ticket-list { display: grid; gap: 10px; }
+  .ticket-item { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+  [data-theme="light"] .ticket-item { background: var(--bg2); }
+  .ticket-title { font-weight: 600; font-size: 14px; color: var(--text); margin-bottom: 4px; }
+  .ticket-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+  .cat-pill, .status-pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; }
+  .cat-feature  { background: rgb(var(--accent2-rgb)/.13); color: var(--accent2); border: 1px solid rgb(var(--accent2-rgb)/.3); }
+  .cat-bug      { background: rgb(var(--red-rgb)/.1); color: var(--red); border: 1px solid rgb(var(--red-rgb)/.3); }
+  .cat-improvement { background: rgb(255 200 61 / .14); color: var(--text); border: 1px solid rgb(255 200 61 / .4); }
+  .status-pending     { background: var(--bg3); color: var(--text3); border: 1px solid var(--border2); }
+  .status-approved    { background: rgb(var(--green-rgb)/.12); color: var(--green); border: 1px solid rgb(var(--green-rgb)/.3); }
+  .status-rejected    { background: rgb(var(--red-rgb)/.1); color: var(--red); border: 1px solid rgb(var(--red-rgb)/.3); }
+  .status-in_progress { background: rgb(var(--accent-rgb)/.12); color: var(--accent); border: 1px solid rgb(var(--accent-rgb)/.3); }
+  .status-done        { background: rgb(var(--green-rgb)/.12); color: var(--green); border: 1px solid rgb(var(--green-rgb)/.3); }
+  .ticket-date { font-size: 12px; color: var(--text3); }
+  .ticket-note { margin-top: 8px; font-size: 13px; color: var(--text2); background: var(--bg2); border-left: 3px solid var(--border2); padding: 6px 10px; border-radius: 0 var(--radius) var(--radius) 0; }
+  [data-theme="light"] .ticket-note { background: var(--bg3); }
+  .empty-state { text-align: center; color: var(--text3); padding: 32px 0; font-size: 14px; }
+  @media (max-width: 720px) { .fb-grid { grid-template-columns: 1fr; } }
+</style>
+
+<div class="fb-page">
+  <div class="fb-header">
+    <h1>Open Tickets</h1>
+    <p>Submit a feature request, report a bug, or suggest an improvement. Our team reviews each submission.</p>
+  </div>
+
+  <div class="fb-grid">
+    <!-- Submit form -->
+    <div class="fb-card">
+      <h2>Raise a request</h2>
+      <div class="form-group">
+        <label for="fCat">Category</label>
+        <select id="fCat">
+          <option value="feature">New Feature</option>
+          <option value="bug">Bug Report</option>
+          <option value="improvement">Improvement</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="fTitle">Title</label>
+        <input type="text" id="fTitle" placeholder="Short summary of your request" maxlength="200">
+      </div>
+      <div class="form-group">
+        <label for="fDesc">Description</label>
+        <textarea id="fDesc" placeholder="Describe the request in detail — what problem it solves, how it should work, etc."></textarea>
+      </div>
+      <button class="btn btn-primary" onclick="submitFeedback()">Submit request</button>
+      <div id="fbMsg" style="margin-top:12px;font-size:13px;display:none;"></div>
+    </div>
+
+    <!-- My tickets -->
+    <div class="fb-card">
+      <h2>My requests</h2>
+      {% if my_requests %}
+      <div class="ticket-list">
+        {% for r in my_requests %}
+        <div class="ticket-item">
+          <div class="ticket-title">{{ r.title }}</div>
+          <div style="font-size:13px;color:var(--text2);margin-top:3px;white-space:pre-wrap;line-height:1.45;">{{ r.description|truncatechars:160 }}</div>
+          <div class="ticket-meta">
+            <span class="cat-pill cat-{{ r.category }}">{{ r.get_category_display }}</span>
+            <span class="status-pill status-{{ r.status }}">{{ r.get_status_display }}</span>
+            <span class="ticket-date">{{ r.created_at|date:"M j, Y" }}</span>
+          </div>
+          {% if r.admin_note %}
+          <div class="ticket-note"><strong>Team note:</strong> {{ r.admin_note }}</div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty-state">No requests yet. Submit your first one!</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script>
+const CSRF = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '';
+
+async function submitFeedback() {
+  const title = document.getElementById('fTitle').value.trim();
+  const description = document.getElementById('fDesc').value.trim();
+  const category = document.getElementById('fCat').value;
+  const msg = document.getElementById('fbMsg');
+
+  if (!title) { showMsg('Please enter a title.', 'warn'); document.getElementById('fTitle').focus(); return; }
+  if (!description) { showMsg('Please describe your request.', 'warn'); document.getElementById('fDesc').focus(); return; }
+
+  const res = await fetch('/api/feedback/submit/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+    body: JSON.stringify({ title, description, category }),
+  });
+
+  if (res.ok) {
+    showMsg('Request submitted! Our team will review it.', 'success');
+    document.getElementById('fTitle').value = '';
+    document.getElementById('fDesc').value = '';
+    document.getElementById('fCat').value = 'feature';
+    setTimeout(() => location.reload(), 1200);
+  } else {
+    const data = await res.json().catch(() => ({}));
+    showMsg(data.error || 'Could not submit. Please try again.', 'error');
+  }
+}
+
+function showMsg(text, type) {
+  const el = document.getElementById('fbMsg');
+  el.textContent = text;
+  el.style.display = '';
+  el.style.color = type === 'success' ? 'var(--green)' : type === 'error' ? 'var(--red)' : 'var(--text2)';
+}
+</script>
+{% endblock %}

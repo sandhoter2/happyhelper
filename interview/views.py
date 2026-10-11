@@ -2645,3 +2645,76 @@ def api_session_document_detach(request, session_id, document_id):
     session = get_object_or_404(InterviewSession, id=session_id, owner=request.user)
     SessionDocument.objects.filter(session=session, document_id=document_id).delete()
     return JsonResponse({"ok": True})
+
+
+# ─── Feature Requests / Open Tickets ────────────────────────────────────────
+
+@login_required
+def feedback_page(request):
+    from interview.models import FeatureRequest
+    my_requests = FeatureRequest.objects.filter(submitted_by=request.user)
+    return render(request, "interview/feedback.html", {
+        "my_requests": my_requests,
+    })
+
+
+@login_required
+@require_POST
+def api_submit_feedback(request):
+    import json as _json
+    from interview.models import FeatureRequest
+    try:
+        data = _json.loads(request.body)
+    except Exception:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    title = (data.get("title") or "").strip()
+    description = (data.get("description") or "").strip()
+    category = data.get("category", "feature")
+    if not title or not description:
+        return JsonResponse({"error": "Title and description are required"}, status=400)
+    if category not in ("feature", "bug", "improvement"):
+        category = "feature"
+    fr = FeatureRequest.objects.create(
+        submitted_by=request.user,
+        title=title,
+        description=description,
+        category=category,
+    )
+    return JsonResponse({"id": fr.pk, "status": fr.status})
+
+
+@login_required
+def admin_feedback(request):
+    from interview.models import FeatureRequest
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("Superuser access required")
+    status_filter = request.GET.get("status", "")
+    qs = FeatureRequest.objects.select_related("submitted_by")
+    if status_filter:
+        qs = qs.filter(status=status_filter)
+    return render(request, "interview/admin_feedback.html", {
+        "requests": qs,
+        "status_filter": status_filter,
+        "status_choices": FeatureRequest.STATUS_CHOICES,
+    })
+
+
+@login_required
+@require_POST
+def admin_feedback_action(request, request_id):
+    import json as _json
+    from interview.models import FeatureRequest
+    if not request.user.is_superuser:
+        return JsonResponse({"error": "Superuser access required"}, status=403)
+    try:
+        data = _json.loads(request.body)
+    except Exception:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    fr = get_object_or_404(FeatureRequest, pk=request_id)
+    new_status = data.get("status")
+    admin_note = data.get("admin_note", fr.admin_note)
+    if new_status and new_status in dict(FeatureRequest.STATUS_CHOICES):
+        fr.status = new_status
+    fr.admin_note = admin_note.strip() if admin_note else fr.admin_note
+    fr.save(update_fields=["status", "admin_note", "updated_at"])
+    return JsonResponse({"id": fr.pk, "status": fr.status, "admin_note": fr.admin_note})

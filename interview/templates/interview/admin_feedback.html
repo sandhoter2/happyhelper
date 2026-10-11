@@ -1,0 +1,123 @@
+{% extends "interview/base.html" %}
+{% block title %}Admin — Feature Requests{% endblock %}
+
+{% block content %}
+<style>
+  .admin-fb { max-width: 1100px; margin: 0 auto; padding: 32px 24px 48px; }
+  .admin-fb-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
+  .admin-fb-header h1 { font-size: 26px; font-weight: 800; }
+  .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 12px 14px; margin-bottom: 20px; }
+  .filter-btn { padding: 5px 12px; border-radius: 999px; font: 600 13px var(--sans); cursor: pointer; border: 1px solid var(--border2); background: transparent; color: var(--text2); text-decoration: none; }
+  .filter-btn:hover { color: var(--text); border-color: var(--border3); }
+  .filter-btn.active { border-color: var(--brand); color: var(--on-brand); background: var(--brand); }
+  .ticket-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px 20px; margin-bottom: 12px; }
+  .ticket-top { display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; justify-content: space-between; }
+  .ticket-title { font-weight: 700; font-size: 15px; color: var(--text); }
+  .ticket-user { font-size: 13px; color: var(--text3); margin-top: 2px; }
+  .ticket-body { font-size: 14px; color: var(--text2); margin-top: 10px; white-space: pre-wrap; line-height: 1.5; }
+  .ticket-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  .cat-pill, .status-pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; }
+  .cat-feature  { background: rgb(var(--accent2-rgb)/.13); color: var(--accent2); border: 1px solid rgb(var(--accent2-rgb)/.3); }
+  .cat-bug      { background: rgb(var(--red-rgb)/.1); color: var(--red); border: 1px solid rgb(var(--red-rgb)/.3); }
+  .cat-improvement { background: rgb(255 200 61 / .14); color: var(--text); border: 1px solid rgb(255 200 61 / .4); }
+  .status-pending     { background: var(--bg3); color: var(--text3); border: 1px solid var(--border2); }
+  .status-approved    { background: rgb(var(--green-rgb)/.12); color: var(--green); border: 1px solid rgb(var(--green-rgb)/.3); }
+  .status-rejected    { background: rgb(var(--red-rgb)/.1); color: var(--red); border: 1px solid rgb(var(--red-rgb)/.3); }
+  .status-in_progress { background: rgb(var(--accent-rgb)/.12); color: var(--accent); border: 1px solid rgb(var(--accent-rgb)/.3); }
+  .status-done        { background: rgb(var(--green-rgb)/.12); color: var(--green); border: 1px solid rgb(var(--green-rgb)/.3); }
+  .ticket-date { font-size: 12px; color: var(--text3); }
+  .admin-actions { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
+  .admin-actions select { background: var(--bg); border: 1px solid var(--border2); border-radius: var(--radius); color: var(--text); padding: 7px 10px; font-size: 13px; font-family: inherit; }
+  [data-theme="light"] .admin-actions select { background: var(--bg2); }
+  .admin-actions textarea { flex: 1; min-width: 200px; background: var(--bg); border: 1px solid var(--border2); border-radius: var(--radius); color: var(--text); padding: 7px 10px; font-size: 13px; font-family: inherit; resize: vertical; min-height: 52px; }
+  [data-theme="light"] .admin-actions textarea { background: var(--bg2); }
+  .admin-actions select:focus, .admin-actions textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring); }
+  .empty { text-align: center; color: var(--text3); padding: 48px 0; }
+</style>
+
+<div class="admin-fb">
+  <div class="admin-fb-header">
+    <div>
+      <h1>Feature Requests</h1>
+      <p style="color:var(--text2);font-size:14px;margin-top:4px;">Review and action user-submitted requests.</p>
+    </div>
+  </div>
+
+  <div class="filter-bar">
+    <a href="/admin-portal/feedback/" class="filter-btn {% if not status_filter %}active{% endif %}">All</a>
+    {% for val, label in status_choices %}
+    <a href="/admin-portal/feedback/?status={{ val }}" class="filter-btn {% if status_filter == val %}active{% endif %}">{{ label }}</a>
+    {% endfor %}
+  </div>
+
+  {% if requests %}
+  {% for r in requests %}
+  <div class="ticket-card" id="card-{{ r.pk }}">
+    <div class="ticket-top">
+      <div>
+        <div class="ticket-title">{{ r.title }}</div>
+        <div class="ticket-user">by {{ r.submitted_by.username }} — {{ r.submitted_by.email }}</div>
+      </div>
+      <div class="ticket-meta">
+        <span class="cat-pill cat-{{ r.category }}">{{ r.get_category_display }}</span>
+        <span class="status-pill status-{{ r.status }}" id="status-pill-{{ r.pk }}">{{ r.get_status_display }}</span>
+        <span class="ticket-date">{{ r.created_at|date:"M j, Y H:i" }}</span>
+      </div>
+    </div>
+    <div class="ticket-body">{{ r.description }}</div>
+    {% if r.admin_note %}
+    <div style="margin-top:10px;font-size:13px;color:var(--text2);background:var(--bg3);border-left:3px solid var(--border2);padding:6px 10px;border-radius:0 var(--radius) var(--radius) 0;">
+      <strong>Admin note:</strong> <span id="note-text-{{ r.pk }}">{{ r.admin_note }}</span>
+    </div>
+    {% endif %}
+    <div class="admin-actions">
+      <select id="sel-{{ r.pk }}">
+        {% for val, label in status_choices %}
+        <option value="{{ val }}" {% if r.status == val %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <textarea id="note-{{ r.pk }}" placeholder="Add or update admin note (optional)">{{ r.admin_note }}</textarea>
+      <button class="btn btn-primary btn-sm" onclick="saveAction({{ r.pk }})">Save</button>
+    </div>
+  </div>
+  {% endfor %}
+  {% else %}
+  <div class="empty">No requests found{% if status_filter %} with status "{{ status_filter }}"{% endif %}.</div>
+  {% endif %}
+</div>
+
+<script>
+const CSRF = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '';
+
+const STATUS_LABELS = {
+  pending: "Pending Review",
+  approved: "Approved",
+  rejected: "Rejected",
+  in_progress: "In Progress",
+  done: "Done",
+};
+
+async function saveAction(id) {
+  const status = document.getElementById(`sel-${id}`).value;
+  const admin_note = document.getElementById(`note-${id}`).value.trim();
+
+  const res = await fetch(`/admin-portal/feedback/${id}/action/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+    body: JSON.stringify({ status, admin_note }),
+  });
+
+  if (res.ok) {
+    const data = await res.json();
+    const pill = document.getElementById(`status-pill-${id}`);
+    if (pill) {
+      pill.className = `status-pill status-${data.status}`;
+      pill.textContent = STATUS_LABELS[data.status] || data.status;
+    }
+    toast('Updated', 'success');
+  } else {
+    toast('Could not save changes', 'error');
+  }
+}
+</script>
+{% endblock %}

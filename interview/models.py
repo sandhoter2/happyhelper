@@ -469,3 +469,42 @@ class PromptTemplate(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.template_type})"
+
+
+class FeatureRequest(models.Model):
+    STATUS_PENDING = "pending"
+    STATUS_APPROVED = "approved"
+    STATUS_REJECTED = "rejected"
+    STATUS_IN_PROGRESS = "in_progress"
+    STATUS_DONE = "done"
+    STATUS_CHOICES = [
+        ("pending", "Pending Review"),
+        ("approved", "Approved"),
+        ("rejected", "Rejected"),
+        ("in_progress", "In Progress"),
+        ("done", "Done"),
+    ]
+
+    CAT_FEATURE = "feature"
+    CAT_BUG = "bug"
+    CAT_IMPROVEMENT = "improvement"
+    CAT_CHOICES = [
+        ("feature", "New Feature"),
+        ("bug", "Bug Report"),
+        ("improvement", "Improvement"),
+    ]
+
+    submitted_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name="feature_requests")
+    title = models.CharField(max_length=200)
+    description = models.TextField()
+    category = models.CharField(max_length=20, choices=CAT_CHOICES, default="feature")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+    admin_note = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.title} ({self.status})"

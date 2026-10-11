@@ -80,4 +80,9 @@ urlpatterns = [
     path("api/session/<uuid:session_id>/documents/", views.api_session_documents_list, name="api_session_documents_list"),
     path("api/session/<uuid:session_id>/documents/attach/", views.api_session_documents_attach, name="api_session_documents_attach"),
     path("api/session/<uuid:session_id>/documents/<uuid:document_id>/detach/", views.api_session_document_detach, name="api_session_document_detach"),
+    # Feature Requests / Open Tickets
+    path("feedback/", views.feedback_page, name="feedback_page"),
+    path("api/feedback/submit/", views.api_submit_feedback, name="api_submit_feedback"),
+    path("admin-portal/feedback/", views.admin_feedback, name="admin_feedback"),
+    path("admin-portal/feedback/<int:request_id>/action/", views.admin_feedback_action, name="admin_feedback_action"),
 ]
