@@ -1,0 +1,85 @@
+ParakeetAI Sample Test Document
+================================
+
+This is a sample document for testing the LlamaParse document upload and parsing pipeline.
+
+## Section 1: About This Document
+
+This document serves as a test file for the ParakeetAI document upload feature. It contains
+multiple sections with meaningful technical content to verify that:
+
+1. File upload works correctly
+2. LlamaParse successfully parses the text
+3. The parsed context is injected into AI responses during sessions
+4. Document limits (count, size, pages) are enforced properly
+
+## Section 2: Python Coding Interview Questions
+
+Below are common Python interview topics that an AI assistant can reference:
+
+**Data Structures:**
+- Lists, tuples, sets, and dictionaries — their time complexities and use cases
+- Stack (LIFO) implemented with list.append() and list.pop()
+- Queue (FIFO) implemented with collections.deque
+- Heap operations via the heapq module (min-heap by default)
+
+**Key Algorithms:**
+- Binary search: O(log n) time, requires sorted array
+- Merge sort: O(n log n) time, O(n) space, stable sort
+- Quick sort: O(n log n) average, O(n²) worst case
+- BFS/DFS for graph traversal
+
+**Python-Specific Concepts:**
+- Generators and yield — lazy evaluation, memory efficient
+- List comprehensions vs map/filter — comprehensions preferred in Python
+- Decorators — functions that wrap other functions
+- Context managers — __enter__ / __exit__ for resource management
+- GIL (Global Interpreter Lock) — affects multi-threading, not multiprocessing
+
+## Section 3: System Design Notes
+
+Common system design topics for software engineering interviews:
+
+**Scalability Patterns:**
+- Horizontal scaling: add more servers (scale out)
+- Vertical scaling: add more resources to existing server (scale up)
+- Load balancing: distribute traffic across servers
+- Caching: Redis for in-memory, CDN for static assets
+- Database sharding: partition data across multiple databases
+- Message queues: Kafka, RabbitMQ for async processing
+
+**CAP Theorem:**
+- Consistency: every read gets the most recent write
+- Availability: every request gets a non-error response
+- Partition Tolerance: system continues despite network partitions
+- In distributed systems, you can only guarantee 2 of 3
+
+**Database Choices:**
+- SQL (PostgreSQL, MySQL): ACID transactions, complex queries, structured data
+- NoSQL (MongoDB, DynamoDB): flexible schema, horizontal scaling, document/key-value
+- Redis: in-memory, ultra-fast, caching, sessions, pub/sub
+
+## Section 4: Behavioral Interview Framework
+
+**STAR Method for answering behavioral questions:**
+- Situation: Set the context with specific details
+- Task: Describe your responsibility in that situation
+- Action: Explain the steps you took (focus on YOUR actions, use "I" not "we")
+- Result: Share the outcome with measurable impact
+
+**Common behavioral questions:**
+- Tell me about a time you handled a conflict with a coworker
+- Describe a project where you had to learn something new quickly
+- Give an example of when you failed and what you learned
+- Tell me about a time you had to prioritize multiple deadlines
+
+## Section 5: Key Metrics
+
+This document contains approximately:
+- Word count: ~450 words
+- Sections: 5 main sections
+- Topics covered: Python, algorithms, system design, behavioral interviews
+- Estimated pages: 2
+
+---
+End of test document. Upload this file to verify the full LlamaParse pipeline works correctly.

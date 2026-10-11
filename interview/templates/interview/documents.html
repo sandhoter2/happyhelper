@@ -1,0 +1,239 @@
+{% extends "interview/base.html" %}
+{% block title %}Documents — ParakeetAI{% endblock %}
+
+{% block content %}
+<style>
+  .doc-page { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  .doc-header { margin-bottom: 28px; }
+  .doc-header h1 { font-size: 28px; font-weight: 800; margin-bottom: 6px; }
+  .doc-header p { color: var(--text2); font-size: 14px; max-width: 60ch; }
+  .usage-bar-wrap { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px 20px; margin-bottom: 24px; display: flex; gap: 24px; flex-wrap: wrap; }
+  .usage-item { flex: 1; min-width: 140px; }
+  .usage-label { font-size: 12px; color: var(--text3); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+  .usage-value { font-size: 20px; font-weight: 700; }
+  .usage-max { font-size: 13px; color: var(--text3); }
+  .progress { height: 6px; border-radius: 99px; background: var(--bg3); margin-top: 6px; overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 99px; background: var(--brand); transition: width .3s; }
+  .progress-fill.warn { background: #f59e0b; }
+  .progress-fill.danger { background: #ef4444; }
+  .upload-zone { border: 2px dashed var(--border); border-radius: var(--radius-lg); padding: 36px 24px; text-align: center; background: var(--bg2); cursor: pointer; transition: border-color .2s, background .2s; margin-bottom: 24px; }
+  .upload-zone.drag-over { border-color: var(--brand); background: rgb(var(--brand-rgb, 99 102 241) / .06); }
+  .upload-zone-icon { font-size: 36px; margin-bottom: 10px; }
+  .upload-zone-text { font-weight: 600; margin-bottom: 4px; }
+  .upload-zone-sub { font-size: 13px; color: var(--text3); }
+  .upload-zone input[type=file] { display: none; }
+  .doc-list { display: flex; flex-direction: column; gap: 10px; }
+  .doc-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 14px 18px; display: flex; align-items: center; gap: 14px; }
+  .doc-icon { font-size: 24px; flex-shrink: 0; }
+  .doc-info { flex: 1; min-width: 0; }
+  .doc-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .doc-meta { font-size: 12px; color: var(--text3); margin-top: 2px; }
+  .doc-status { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 99px; }
+  .doc-status.ready { background: rgb(16 185 129 / .12); color: #10b981; }
+  .doc-status.processing { background: rgb(245 158 11 / .12); color: #f59e0b; }
+  .doc-status.pending { background: rgb(148 163 184 / .12); color: var(--text3); }
+  .doc-status.error { background: rgb(239 68 68 / .12); color: #ef4444; }
+  .doc-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .empty-state { text-align: center; color: var(--text3); padding: 48px 0; }
+  .empty-state-icon { font-size: 40px; margin-bottom: 12px; }
+  .upload-progress { margin-bottom: 24px; display: none; }
+  .upload-progress-bar { height: 6px; border-radius: 99px; background: var(--bg3); overflow: hidden; margin-top: 8px; }
+  .upload-progress-fill { height: 100%; background: var(--brand); border-radius: 99px; width: 0; transition: width .5s; }
+  .upload-status-text { font-size: 13px; color: var(--text2); }
+</style>
+
+<div class="doc-page">
+  <div class="doc-header">
+    <h1>Documents</h1>
+    <p>Upload PDFs, Word docs, and code files. Attach them to sessions so the AI has your document context when answering.</p>
+  </div>
+
+  <!-- Usage bar -->
+  <div class="usage-bar-wrap" id="usageBar">
+    <div class="usage-item">
+      <div class="usage-label">Documents</div>
+      <div class="usage-value"><span id="usageDocCount">0</span> <span class="usage-max" id="usageDocMax">/ 10</span></div>
+      <div class="progress"><div class="progress-fill" id="usageDocBar" style="width:0%"></div></div>
+    </div>
+    <div class="usage-item">
+      <div class="usage-label">Total Size</div>
+      <div class="usage-value"><span id="usageSizeMb">0</span> <span class="usage-max" id="usageSizeMax">MB / 10 MB</span></div>
+      <div class="progress"><div class="progress-fill" id="usageSizeBar" style="width:0%"></div></div>
+    </div>
+    <div class="usage-item">
+      <div class="usage-label">Total Pages</div>
+      <div class="usage-value"><span id="usagePages">0</span> <span class="usage-max" id="usagePagesMax">/ 100</span></div>
+      <div class="progress"><div class="progress-fill" id="usagePagesBar" style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <!-- Upload progress -->
+  <div class="upload-progress" id="uploadProgress">
+    <div class="upload-status-text" id="uploadStatusText">Uploading and parsing…</div>
+    <div class="upload-progress-bar"><div class="upload-progress-fill" id="uploadProgressFill"></div></div>
+  </div>
+
+  <!-- Drop zone -->
+  <div class="upload-zone" id="uploadZone">
+    <div class="upload-zone-icon">📎</div>
+    <div class="upload-zone-text">Drop files here or click to browse</div>
+    <div class="upload-zone-sub">PDF, DOCX, TXT, Python, JavaScript, TypeScript, and more</div>
+    <input type="file" id="fileInput" multiple accept=".pdf,.docx,.doc,.txt,.py,.js,.ts,.jsx,.tsx,.java,.go,.rb,.rs,.cpp,.c,.h,.cs,.md">
+  </div>
+
+  <!-- Document list -->
+  <div class="doc-list" id="docList">
+    <div class="empty-state" id="emptyState">
+      <div class="empty-state-icon">📂</div>
+      <div>No documents yet. Upload one above.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const CSRF = '{{ csrf_token }}';
+
+function fileIcon(name) {
+  const ext = name.split('.').pop().toLowerCase();
+  const map = { pdf: '📄', docx: '📝', doc: '📝', txt: '📃', py: '🐍', js: '🟨', ts: '🔷', jsx: '⚛️', tsx: '⚛️', md: '📋', java: '☕', go: '🐹', rb: '💎', rs: '🦀', cpp: '⚙️', c: '⚙️', cs: '🔷' };
+  return map[ext] || '📄';
+}
+
+function fmtSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+  return (bytes/(1024*1024)).toFixed(2) + ' MB';
+}
+
+function updateProgress(pct, text) {
+  const wrap = document.getElementById('uploadProgress');
+  wrap.style.display = 'block';
+  document.getElementById('uploadProgressFill').style.width = pct + '%';
+  document.getElementById('uploadStatusText').textContent = text;
+}
+
+function hideProgress() {
+  document.getElementById('uploadProgress').style.display = 'none';
+  document.getElementById('uploadProgressFill').style.width = '0';
+}
+
+function renderDocs(data) {
+  const list = document.getElementById('docList');
+  const empty = document.getElementById('emptyState');
+  const docs = data.documents;
+  const limits = data.limits;
+  const usage = data.usage;
+
+  // Update usage bars
+  document.getElementById('usageDocCount').textContent = usage.document_count;
+  document.getElementById('usageDocMax').textContent = `/ ${limits.max_documents}`;
+  document.getElementById('usageSizeMb').textContent = usage.total_size_mb.toFixed(2);
+  document.getElementById('usageSizeMax').textContent = `MB / ${limits.max_total_size_mb} MB`;
+  document.getElementById('usagePages').textContent = usage.total_pages;
+  document.getElementById('usagePagesMax').textContent = `/ ${limits.max_total_pages}`;
+
+  function barClass(pct) { return pct >= 90 ? 'danger' : pct >= 70 ? 'warn' : ''; }
+  const docPct = Math.min(100, (usage.document_count / limits.max_documents) * 100);
+  const sizePct = Math.min(100, (usage.total_size_mb / limits.max_total_size_mb) * 100);
+  const pagesPct = Math.min(100, (usage.total_pages / limits.max_total_pages) * 100);
+  document.getElementById('usageDocBar').style.width = docPct + '%';
+  document.getElementById('usageDocBar').className = 'progress-fill ' + barClass(docPct);
+  document.getElementById('usageSizeBar').style.width = sizePct + '%';
+  document.getElementById('usageSizeBar').className = 'progress-fill ' + barClass(sizePct);
+  document.getElementById('usagePagesBar').style.width = pagesPct + '%';
+  document.getElementById('usagePagesBar').className = 'progress-fill ' + barClass(pagesPct);
+
+  // Remove old cards (keep emptyState)
+  list.querySelectorAll('.doc-card').forEach(el => el.remove());
+
+  if (!docs.length) {
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+
+  docs.forEach(doc => {
+    const card = document.createElement('div');
+    card.className = 'doc-card';
+    card.dataset.id = doc.id;
+    const statusLabel = { ready: 'Ready', processing: 'Processing…', pending: 'Pending', error: 'Error' }[doc.status] || doc.status;
+    card.innerHTML = `
+      <div class="doc-icon">${fileIcon(doc.filename)}</div>
+      <div class="doc-info">
+        <div class="doc-name" title="${doc.filename}">${doc.filename}</div>
+        <div class="doc-meta">${fmtSize(doc.size_bytes)}${doc.page_count ? ' · ' + doc.page_count + ' pages' : ''}${doc.status === 'error' ? ' · ' + (doc.error_message || 'Unknown error') : ''}</div>
+      </div>
+      <span class="doc-status ${doc.status}">${statusLabel}</span>
+      <div class="doc-actions">
+        <button class="btn btn-ghost btn-sm btn-delete" data-id="${doc.id}" title="Delete">🗑</button>
+      </div>
+    `;
+    list.appendChild(card);
+  });
+
+  list.querySelectorAll('.btn-delete').forEach(btn => {
+    btn.addEventListener('click', () => deleteDoc(btn.dataset.id));
+  });
+}
+
+async function loadDocs() {
+  const resp = await fetch('/api/documents/');
+  if (!resp.ok) return;
+  const data = await resp.json();
+  renderDocs(data);
+}
+
+async function uploadFile(file) {
+  updateProgress(10, `Uploading ${file.name}…`);
+  const fd = new FormData();
+  fd.append('file', file);
+  const resp = await fetch('/api/documents/upload/', {
+    method: 'POST',
+    headers: { 'X-CSRFToken': CSRF },
+    body: fd,
+  });
+  const data = await resp.json();
+  if (!resp.ok) {
+    hideProgress();
+    toast(data.error || 'Upload failed', 'error');
+    return;
+  }
+  updateProgress(90, 'Parsing document…');
+  // Final status already returned synchronously (we poll inside the view)
+  updateProgress(100, data.status === 'ready' ? 'Done!' : (data.status === 'error' ? 'Error: ' + (data.error_message || '') : 'Processing…'));
+  setTimeout(hideProgress, 1800);
+  await loadDocs();
+  if (data.status === 'ready') toast(file.name + ' ready', 'success');
+  else if (data.status === 'error') toast('Parse error: ' + (data.error_message || ''), 'error');
+}
+
+async function deleteDoc(id) {
+  if (!confirm('Delete this document?')) return;
+  const resp = await fetch(`/api/documents/${id}/delete/`, {
+    method: 'POST',
+    headers: { 'X-CSRFToken': CSRF },
+  });
+  if (resp.ok) { toast('Document deleted', 'success'); await loadDocs(); }
+  else toast('Delete failed', 'error');
+}
+
+// Drop zone
+const zone = document.getElementById('uploadZone');
+const fileInput = document.getElementById('fileInput');
+
+zone.addEventListener('click', () => fileInput.click());
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+zone.addEventListener('drop', async e => {
+  e.preventDefault();
+  zone.classList.remove('drag-over');
+  for (const file of e.dataTransfer.files) await uploadFile(file);
+});
+fileInput.addEventListener('change', async () => {
+  for (const file of fileInput.files) await uploadFile(file);
+  fileInput.value = '';
+});
+
+loadDocs();
+</script>
+{% endblock %}

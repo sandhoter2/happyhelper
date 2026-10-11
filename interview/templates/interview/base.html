@@ -108,6 +108,7 @@
       <div class="nav-links">
         <a href="/" class="nav-link{% if request.path == '/' %} active{% endif %}">Sessions</a>
         <a href="/templates/" class="nav-link{% if request.path == '/templates/' %} active{% endif %}">Templates</a>
+        <a href="/documents/" class="nav-link{% if request.path == '/documents/' %} active{% endif %}">Documents</a>
       </div>
       {% endif %}
     </div>
@@ -131,6 +132,7 @@
         <div class="user-menu-panel">
           <a href="/" class="only-mobile">Sessions</a>
           <a href="/templates/" class="only-mobile">Templates</a>
+          <a href="/documents/" class="only-mobile">Documents</a>
           <a href="/profile/">Profile</a>
           <a href="/settings/">Settings</a>
           <a href="/pricing/">Plans and billing</a>

@@ -325,6 +325,81 @@ class QuestionBank(models.Model):
         return f"[{self.category}] {self.question[:80]}"
 
 
+class DocumentParserConfig(models.Model):
+    PARSER_LLAMAPARSE = "llamaparse"
+    PARSER_CHOICES = [
+        (PARSER_LLAMAPARSE, "LlamaParse"),
+    ]
+
+    parser_type = models.CharField(max_length=30, choices=PARSER_CHOICES, default=PARSER_LLAMAPARSE, unique=True)
+    max_documents = models.IntegerField(default=10, help_text="Max documents per user")
+    max_total_size_mb = models.FloatField(default=10.0, help_text="Max total size in MB across all documents")
+    max_total_pages = models.IntegerField(default=100, help_text="Max total pages across all documents")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Document Parser Config"
+        verbose_name_plural = "Document Parser Configs"
+
+    def __str__(self):
+        return f"{self.get_parser_type_display()} config (max {self.max_documents} docs, {self.max_total_size_mb}MB, {self.max_total_pages} pages)"
+
+
+def user_document_upload_path(instance, filename):
+    return f"documents/{instance.owner_id}/{filename}"
+
+
+class UserDocument(models.Model):
+    STATUS_PENDING = "pending"
+    STATUS_PROCESSING = "processing"
+    STATUS_READY = "ready"
+    STATUS_ERROR = "error"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_PROCESSING, "Processing"),
+        (STATUS_READY, "Ready"),
+        (STATUS_ERROR, "Error"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="documents")
+    original_filename = models.CharField(max_length=255)
+    file = models.FileField(upload_to=user_document_upload_path, blank=True)
+    size_bytes = models.BigIntegerField(default=0)
+    page_count = models.IntegerField(default=0)
+    llama_job_id = models.CharField(max_length=128, blank=True)
+    parsed_text = models.TextField(blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.original_filename} ({self.owner.username})"
+
+    @property
+    def size_mb(self):
+        return round(self.size_bytes / (1024 * 1024), 2)
+
+
+class SessionDocument(models.Model):
+    session = models.ForeignKey(InterviewSession, on_delete=models.CASCADE, related_name="session_documents")
+    document = models.ForeignKey(UserDocument, on_delete=models.CASCADE, related_name="session_documents")
+    attached_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [("session", "document")]
+        ordering = ["attached_at"]
+
+    def __str__(self):
+        return f"{self.document.original_filename} → {self.session.title}"
+
+
 class PromptTemplate(models.Model):
     TYPE_AI_HELP = "ai_help"
     TYPE_MEETING_AI = "meeting_ai"

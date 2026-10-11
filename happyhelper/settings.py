@@ -146,3 +146,8 @@ GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
 GROQ_WHISPER_MODEL = os.environ.get("GROQ_WHISPER_MODEL", "whisper-large-v3-turbo")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+
+LLAMAPARSE_API_KEY = os.environ.get("LLAMAPARSE_API_KEY", "")
+
+MEDIA_ROOT = BASE_DIR / "media"
+MEDIA_URL = "/media/"

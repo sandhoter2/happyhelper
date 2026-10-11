@@ -66,4 +66,13 @@ urlpatterns = [
     path("api/session/<uuid:session_id>/code-help/", views.api_code_help, name="api_code_help"),
     # Detailed Post-Session Feedback
     path("api/session/<uuid:session_id>/feedback/", views.api_session_feedback, name="api_session_feedback"),
+    # Documents
+    path("documents/", views.documents_page, name="documents_page"),
+    path("api/documents/", views.api_documents_list, name="api_documents_list"),
+    path("api/documents/upload/", views.api_document_upload, name="api_document_upload"),
+    path("api/documents/<uuid:document_id>/status/", views.api_document_status, name="api_document_status"),
+    path("api/documents/<uuid:document_id>/delete/", views.api_document_delete, name="api_document_delete"),
+    path("api/session/<uuid:session_id>/documents/", views.api_session_documents_list, name="api_session_documents_list"),
+    path("api/session/<uuid:session_id>/documents/attach/", views.api_session_documents_attach, name="api_session_documents_attach"),
+    path("api/session/<uuid:session_id>/documents/<uuid:document_id>/detach/", views.api_session_document_detach, name="api_session_document_detach"),
 ]

@@ -8,7 +8,7 @@ from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.timezone import localtime
 
-from .models import AIMessage, InterviewSession, QuestionBank, Task, TranscriptEntry, UserProfile
+from .models import AIMessage, DocumentParserConfig, InterviewSession, QuestionBank, SessionDocument, Task, TranscriptEntry, UserDocument, UserProfile
 
 
 @admin.register(UserProfile)
@@ -265,3 +265,24 @@ class QuestionBankAdmin(admin.ModelAdmin):
     def question_preview(self, obj):
         return obj.question[:80] + "…" if len(obj.question) > 80 else obj.question
     question_preview.short_description = "Question"
+
+
+@admin.register(DocumentParserConfig)
+class DocumentParserConfigAdmin(admin.ModelAdmin):
+    list_display = ("parser_type", "max_documents", "max_total_size_mb", "max_total_pages", "is_active", "updated_at")
+    list_editable = ("max_documents", "max_total_size_mb", "max_total_pages", "is_active")
+
+
+@admin.register(UserDocument)
+class UserDocumentAdmin(admin.ModelAdmin):
+    list_display = ("original_filename", "owner", "status", "size_bytes", "page_count", "created_at")
+    list_filter = ("status",)
+    search_fields = ("original_filename", "owner__username")
+    readonly_fields = ("id", "created_at", "updated_at", "llama_job_id", "parsed_text")
+    ordering = ("-created_at",)
+
+
+@admin.register(SessionDocument)
+class SessionDocumentAdmin(admin.ModelAdmin):
+    list_display = ("document", "session", "attached_at")
+    search_fields = ("document__original_filename", "session__title")

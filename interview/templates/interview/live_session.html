@@ -1776,6 +1776,24 @@ body.tc-select-mode .transcript-entry.selected::before, .transcript-entry.select
     <canvas id="waveformCanvas" height="36"></canvas>
   </div>
 
+  <!-- Document attach button + dropdown -->
+  <div style="position:relative;flex-shrink:0" id="docAttachWrap">
+    <button class="mic-btn" id="docAttachBtn" onclick="toggleDocPanel()" title="Attach documents to this session" aria-label="Attach documents" style="font-size:15px;width:36px;height:36px">
+      📎<span id="docAttachCount" style="display:none;position:absolute;top:-5px;right:-5px;background:var(--accent);color:var(--bg);font-size:10px;font-weight:700;border-radius:99px;padding:1px 5px;font-family:var(--sans)">0</span>
+    </button>
+    <div id="docAttachPanel" style="display:none;position:absolute;bottom:calc(100% + 8px);left:0;
+         background:var(--bg2);border:1px solid var(--border2);border-radius:10px;
+         box-shadow:var(--shadow-lg);min-width:260px;max-width:320px;z-index:300;padding:8px">
+      <div style="font-size:12px;font-weight:700;color:var(--text3);padding:4px 8px 6px;text-transform:uppercase;letter-spacing:.04em">Documents</div>
+      <div id="docAttachList" style="max-height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:4px">
+        <div style="font-size:13px;color:var(--text3);padding:8px;text-align:center" id="docAttachEmpty">Loading…</div>
+      </div>
+      <div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px">
+        <a href="/documents/" style="font-size:12px;color:var(--accent);padding:4px 8px;display:block;border-radius:6px" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''" >+ Upload new document</a>
+      </div>
+    </div>
+  </div>
+
   <div class="question-input-wrap">
     <input type="text" class="question-input" id="questionInput" aria-label="Question"
            placeholder="Type a question, or let the microphone pick it up. Enter to send."
@@ -2641,14 +2659,42 @@ window.addEventListener('beforeunload', () => {
   if (rawRecorder && rawRecorder.state === 'recording') {
     try { rawRecorder.requestData(); rawRecorder.stop(); } catch (_) {}
   }
+  // Save any unsaved mic text on page close (keepalive:true works during unload)
+  const _qiUnload = document.getElementById('questionInput');
+  const _textUnload = (typeof micManualAccum !== 'undefined' ? micManualAccum.trim() : '') ||
+                      (_qiUnload ? _qiUnload.value.trim() : '');
+  if (_textUnload) {
+    fetch(`/api/session/${SESSION_ID}/transcript/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transcripts: [{ content: _textUnload, type: 'microphone' }] }),
+      keepalive: true,
+    }).catch(() => {});
+  }
 });
 
 function stopMic() {
   micActive = false;
   micStream = null;
   if (micRecognition) { micRecognition.onend = null; micRecognition.stop(); micRecognition = null; }
+
+  // Auto-save any unsaved spoken text before stopping (manual mode accumulates without saving)
+  const qi = document.getElementById('questionInput');
+  const fi = (typeof _doc === 'function') ? _doc().getElementById('fQuestionInput') : null;
+  const inputVal = (qi ? qi.value : '').trim() || (fi ? fi.value : '').trim();
+  const textToSave = micManualAccum.trim() || inputVal;
+  if (textToSave) {
+    saveMicToServer(textToSave);
+    addTranscriptEntryUI(textToSave, 'microphone');
+    if (qi) qi.value = '';
+    if (fi) fi.value = '';
+    micManualAccum = '';
+    micLastCommitted = '';
+  }
+
   interimEntry.style.display = 'none';
   interimText.textContent = 'Transcribing…';
+  if (interimLabel) { interimLabel.textContent = 'You'; interimLabel.style.color = 'var(--accent2)'; }
   if (transcriptPlaceholder && transcriptCount === 0) transcriptPlaceholder.style.display = 'flex';
   micBtn.classList.remove('active');
   micBtn.innerHTML = ICON_MIC; micBtn.setAttribute('aria-pressed', 'false');
@@ -5272,6 +5318,102 @@ function switchMobileTab(tab) {
     if (tp) tp.scrollTop = tp.scrollHeight;
   }
 }
+
+// ── Document attach panel ────────────────────────────────────────────────
+(function initDocAttach() {
+  const CSRFT = getCookie('csrftoken');
+  let docPanelOpen = false;
+
+  function toggleDocPanel() {
+    docPanelOpen = !docPanelOpen;
+    document.getElementById('docAttachPanel').style.display = docPanelOpen ? 'block' : 'none';
+    if (docPanelOpen) loadDocAttachList();
+  }
+  window.toggleDocPanel = toggleDocPanel;
+
+  document.addEventListener('click', e => {
+    const wrap = document.getElementById('docAttachWrap');
+    if (wrap && !wrap.contains(e.target)) {
+      docPanelOpen = false;
+      document.getElementById('docAttachPanel').style.display = 'none';
+    }
+  });
+
+  async function loadDocAttachList() {
+    const [docsResp, sessionDocsResp] = await Promise.all([
+      fetch('/api/documents/'),
+      fetch(`/api/session/${SESSION_ID}/documents/`),
+    ]);
+    if (!docsResp.ok || !sessionDocsResp.ok) return;
+    const { documents } = await docsResp.json();
+    const sessionDocs = await sessionDocsResp.json();
+    const attachedIds = new Set(sessionDocs.filter(d => d.attached).map(d => d.id));
+
+    const list = document.getElementById('docAttachList');
+    const empty = document.getElementById('docAttachEmpty');
+    list.querySelectorAll('.doc-attach-row').forEach(el => el.remove());
+
+    if (!documents.length) {
+      empty.textContent = 'No documents uploaded.';
+      empty.style.display = 'block';
+      updateDocBadge(0);
+      return;
+    }
+    empty.style.display = 'none';
+
+    documents.forEach(doc => {
+      const attached = attachedIds.has(doc.id);
+      const row = document.createElement('label');
+      row.className = 'doc-attach-row';
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:13px;';
+      row.onmouseover = () => row.style.background = 'var(--bg3)';
+      row.onmouseout = () => row.style.background = '';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = attached;
+      cb.disabled = doc.status !== 'ready';
+      cb.dataset.id = doc.id;
+      cb.addEventListener('change', async () => {
+        if (cb.checked) {
+          await fetch(`/api/session/${SESSION_ID}/documents/attach/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRFT },
+            body: JSON.stringify({ document_ids: [doc.id] }),
+          });
+        } else {
+          await fetch(`/api/session/${SESSION_ID}/documents/${doc.id}/detach/`, {
+            method: 'POST', headers: { 'X-CSRFToken': CSRFT },
+          });
+        }
+        updateDocBadge(list.querySelectorAll('input[type=checkbox]:checked').length);
+      });
+      const nameSpan = document.createElement('span');
+      nameSpan.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      nameSpan.title = doc.filename;
+      nameSpan.textContent = doc.filename;
+      const statusSpan = document.createElement('span');
+      statusSpan.style.cssText = 'font-size:11px;flex-shrink:0;';
+      statusSpan.style.color = doc.status === 'ready' ? '#10b981' : doc.status === 'error' ? '#ef4444' : 'var(--text3)';
+      statusSpan.textContent = doc.status === 'ready' ? '●' : doc.status === 'error' ? '✗' : '…';
+      row.appendChild(cb);
+      row.appendChild(nameSpan);
+      row.appendChild(statusSpan);
+      list.appendChild(row);
+    });
+    updateDocBadge(attachedIds.size);
+  }
+
+  function updateDocBadge(n) {
+    const badge = document.getElementById('docAttachCount');
+    if (n > 0) { badge.style.display = 'block'; badge.textContent = n; }
+    else badge.style.display = 'none';
+  }
+
+  // Load badge count on page load (without opening panel)
+  fetch(`/api/session/${SESSION_ID}/documents/`).then(r => r.ok ? r.json() : []).then(docs => {
+    if (Array.isArray(docs)) updateDocBadge(docs.filter(d => d.attached).length);
+  }).catch(() => {});
+})();
 
 // Initialize mobile tab state and auto-switch to AI when a response arrives
 (function initMobile() {

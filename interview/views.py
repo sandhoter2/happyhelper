@@ -20,7 +20,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from .forms import NewSessionForm, UserProfileForm
-from .models import AIMessage, InterviewSession, MeetingParticipant, TranscriptEntry, UserProfile, PromptTemplate, QuestionBank
+from .models import AIMessage, DocumentParserConfig, InterviewSession, MeetingParticipant, SessionDocument, TranscriptEntry, UserDocument, UserProfile, PromptTemplate, QuestionBank
+from . import llama_service
 
 AI_HELP_DEFAULTS = [
     {"name": "Default", "icon": "✨", "description": "Clear, direct answer — no forced structure", "prompt": "", "order": 0},
@@ -561,7 +562,9 @@ def api_chat(request, session_id):
         return f"[{label}]: {e.content}"
     transcript_text = "\n".join(_fmt_entry(e) for e in reversed(list(recent_transcripts)))
 
-    system_prompt = _build_system_prompt(session)
+    # Build document context from attached documents
+    doc_context = _get_session_document_context(session)
+    system_prompt = _build_system_prompt(session, document_context=doc_context)
     user_message = f"Recent conversation transcript:\n{transcript_text}\n\nQuestion/topic to address: {question}"
 
     def stream_sse():
@@ -1185,7 +1188,35 @@ def settings_page(request):
     return render(request, "interview/settings.html", {"current": current, "profile": profile, "msg": msg})
 
 
-def _build_system_prompt(session: InterviewSession) -> str:
+def _get_session_document_context(session: InterviewSession) -> str:
+    """Build a combined text context from all READY documents attached to this session."""
+    attached = SessionDocument.objects.filter(
+        session=session, document__status=UserDocument.STATUS_READY
+    ).select_related("document").order_by("attached_at")
+    if not attached:
+        return ""
+    parts = []
+    for sd in attached:
+        doc = sd.document
+        text = doc.parsed_text.strip()
+        if text:
+            parts.append(f"[Document: {doc.original_filename}]\n{text[:4000]}")
+    return "\n\n".join(parts)
+
+
+def _get_parser_config():
+    """Return the active LlamaParse config, or default values if none exists."""
+    try:
+        return DocumentParserConfig.objects.get(parser_type="llamaparse", is_active=True)
+    except DocumentParserConfig.DoesNotExist:
+        class _Default:
+            max_documents = 10
+            max_total_size_mb = 10.0
+            max_total_pages = 100
+        return _Default()
+
+
+def _build_system_prompt(session: InterviewSession, document_context: str = "") -> str:
     if session.session_type == InterviewSession.SESSION_TYPE_MEETING:
         parts = [
             "You are an expert meeting assistant and strategic advisor helping a professional during a live Teams meeting.",
@@ -1243,6 +1274,8 @@ def _build_system_prompt(session: InterviewSession) -> str:
             parts.append(f"\nCandidate background / resume:\n{session.extra_context[:2000]}")
         if session.prep_notes:
             parts.append(f"\nInterview preparation notes:\n{session.prep_notes[:1500]}")
+    if document_context:
+        parts.append(f"\n\n--- Attached Document Context ---\n{document_context}\n--- End Document Context ---")
     return "\n".join(parts)
 
 
@@ -2081,3 +2114,187 @@ def api_session_feedback(request, session_id):
         return JsonResponse({"error": "AI returned invalid JSON"}, status=500)
     except Exception as exc:
         return JsonResponse({"error": str(exc)}, status=500)
+
+
+# ---------------------------------------------------------------------------
+# Document views
+# ---------------------------------------------------------------------------
+
+@login_required
+def documents_page(request):
+    return render(request, "interview/documents.html")
+
+
+@login_required
+def api_documents_list(request):
+    docs = UserDocument.objects.filter(owner=request.user).order_by("-created_at")
+    config = _get_parser_config()
+    total_size = sum(d.size_bytes for d in docs)
+    total_pages = sum(d.page_count for d in docs)
+    data = [
+        {
+            "id": str(d.id),
+            "filename": d.original_filename,
+            "status": d.status,
+            "size_bytes": d.size_bytes,
+            "page_count": d.page_count,
+            "error_message": d.error_message,
+            "created_at": d.created_at.isoformat(),
+        }
+        for d in docs
+    ]
+    return JsonResponse({
+        "documents": data,
+        "limits": {
+            "max_documents": config.max_documents,
+            "max_total_size_mb": config.max_total_size_mb,
+            "max_total_pages": config.max_total_pages,
+        },
+        "usage": {
+            "document_count": len(data),
+            "total_size_mb": round(total_size / (1024 * 1024), 2),
+            "total_pages": total_pages,
+        },
+    })
+
+
+@login_required
+@require_POST
+def api_document_upload(request):
+    import io as _io
+    import os as _os
+    config = _get_parser_config()
+
+    if "file" not in request.FILES:
+        return JsonResponse({"error": "No file provided"}, status=400)
+
+    upload = request.FILES["file"]
+    filename = upload.name
+    ext = _os.path.splitext(filename)[1].lower()
+    if ext not in llama_service.SUPPORTED_EXTENSIONS:
+        return JsonResponse({"error": f"Unsupported file type: {ext}"}, status=400)
+
+    existing_docs = UserDocument.objects.filter(owner=request.user)
+    if existing_docs.count() >= config.max_documents:
+        return JsonResponse({"error": f"Document limit reached ({config.max_documents} max)"}, status=400)
+
+    file_bytes = upload.read()
+    size_bytes = len(file_bytes)
+    current_total_size = sum(d.size_bytes for d in existing_docs)
+    if (current_total_size + size_bytes) > config.max_total_size_mb * 1024 * 1024:
+        return JsonResponse({"error": f"Total size limit of {config.max_total_size_mb} MB would be exceeded"}, status=400)
+
+    doc = UserDocument.objects.create(
+        owner=request.user,
+        original_filename=filename,
+        size_bytes=size_bytes,
+        status=UserDocument.STATUS_PROCESSING,
+    )
+
+    try:
+        job_info = llama_service.upload_file(_io.BytesIO(file_bytes), filename)
+        job_id = job_info.get("id") or job_info.get("job_id", "")
+        doc.llama_job_id = job_id
+        doc.save(update_fields=["llama_job_id"])
+
+        final_status = llama_service.poll_until_done(job_id, max_wait=180)
+        if final_status == "SUCCESS":
+            markdown = llama_service.get_parsed_markdown(job_id)
+            page_count = llama_service.estimate_page_count(markdown)
+            current_total_pages = sum(d.page_count for d in existing_docs.exclude(id=doc.id))
+            if (current_total_pages + page_count) > config.max_total_pages:
+                llama_service.delete_job(job_id)
+                doc.delete()
+                return JsonResponse({"error": f"Page limit of {config.max_total_pages} would be exceeded"}, status=400)
+            doc.parsed_text = markdown
+            doc.page_count = page_count
+            doc.status = UserDocument.STATUS_READY
+        else:
+            doc.status = UserDocument.STATUS_ERROR
+            doc.error_message = f"LlamaParse job ended with status: {final_status}"
+    except Exception as exc:
+        doc.status = UserDocument.STATUS_ERROR
+        doc.error_message = str(exc)
+
+    doc.save()
+    return JsonResponse({
+        "id": str(doc.id),
+        "filename": doc.original_filename,
+        "status": doc.status,
+        "size_bytes": doc.size_bytes,
+        "page_count": doc.page_count,
+        "error_message": doc.error_message,
+    }, status=201 if doc.status == UserDocument.STATUS_READY else 202)
+
+
+@login_required
+def api_document_status(request, document_id):
+    doc = get_object_or_404(UserDocument, id=document_id, owner=request.user)
+    return JsonResponse({
+        "id": str(doc.id),
+        "status": doc.status,
+        "page_count": doc.page_count,
+        "error_message": doc.error_message,
+    })
+
+
+@login_required
+@require_POST
+def api_document_delete(request, document_id):
+    doc = get_object_or_404(UserDocument, id=document_id, owner=request.user)
+    if doc.llama_job_id:
+        try:
+            llama_service.delete_job(doc.llama_job_id)
+        except Exception:
+            pass
+    doc.delete()
+    return JsonResponse({"ok": True})
+
+
+@login_required
+def api_session_documents_list(request, session_id):
+    session = get_object_or_404(InterviewSession, id=session_id, owner=request.user)
+    attached_ids = set(
+        SessionDocument.objects.filter(session=session).values_list("document_id", flat=True)
+    )
+    docs = UserDocument.objects.filter(owner=request.user).order_by("-created_at")
+    data = [
+        {
+            "id": str(d.id),
+            "filename": d.original_filename,
+            "status": d.status,
+            "page_count": d.page_count,
+            "attached": d.id in attached_ids,
+        }
+        for d in docs
+    ]
+    return JsonResponse({"documents": data})
+
+
+@login_required
+@require_POST
+def api_session_documents_attach(request, session_id):
+    session = get_object_or_404(InterviewSession, id=session_id, owner=request.user)
+    try:
+        body = json.loads(request.body)
+        doc_ids = body.get("document_ids", [])
+    except (json.JSONDecodeError, AttributeError):
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    attached = []
+    for did in doc_ids:
+        try:
+            doc = UserDocument.objects.get(id=did, owner=request.user)
+            SessionDocument.objects.get_or_create(session=session, document=doc)
+            attached.append(str(doc.id))
+        except UserDocument.DoesNotExist:
+            pass
+    return JsonResponse({"attached": attached})
+
+
+@login_required
+@require_POST
+def api_session_document_detach(request, session_id, document_id):
+    session = get_object_or_404(InterviewSession, id=session_id, owner=request.user)
+    SessionDocument.objects.filter(session=session, document_id=document_id).delete()
+    return JsonResponse({"ok": True})
