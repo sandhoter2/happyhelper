@@ -278,53 +278,48 @@ class ThemeViewTests(TestCase):
 # ─── LlamaParse service unit tests ────────────────────────────────────────────
 
 class LlamaServiceGetParsedMarkdownTests(TestCase):
-    """get_parsed_markdown must call the v2 /result/markdown endpoint."""
+    """get_parsed_markdown uses the llama-cloud SDK with expand=["markdown"]."""
 
-    @patch("interview.llama_service.requests.get")
-    def test_calls_result_markdown_endpoint(self, mock_get):
-        """Must call /api/v2/parse/{id}/result/markdown, not ?expand=markdown."""
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {"pages": [{"page": 1, "markdown": "# Hello"}]}
-        mock_resp.raise_for_status = MagicMock()
-        mock_get.return_value = mock_resp
+    def _make_client_mock(self, MockLlamaCloud, pages_markdown):
+        mock_client = MagicMock()
+        MockLlamaCloud.return_value = mock_client
+        mock_pages = []
+        for text in pages_markdown:
+            p = MagicMock()
+            p.markdown = text
+            mock_pages.append(p)
+        mock_result = MagicMock()
+        mock_result.markdown.pages = mock_pages
+        mock_client.parsing.get.return_value = mock_result
+        return mock_client
 
+    @patch("interview.llama_service.LlamaCloud")
+    def test_calls_sdk_with_expand_markdown(self, MockLlamaCloud):
+        """Must call parsing.get with expand=["markdown"]."""
+        mock_client = self._make_client_mock(MockLlamaCloud, ["# Hello"])
         from interview import llama_service
-        result = llama_service.get_parsed_markdown("job-123")
+        llama_service.get_parsed_markdown("job-123")
+        mock_client.parsing.get.assert_called_once_with("job-123", expand=["markdown"])
 
-        called_url = mock_get.call_args[0][0]
-        self.assertIn("/result/markdown", called_url)
-        self.assertNotIn("expand", str(mock_get.call_args))
-
-    @patch("interview.llama_service.requests.get")
-    def test_returns_joined_pages(self, mock_get):
+    @patch("interview.llama_service.LlamaCloud")
+    def test_returns_joined_pages(self, MockLlamaCloud):
         """Must join page markdown strings with double newlines."""
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {
-            "pages": [
-                {"page": 1, "markdown": "# Page 1"},
-                {"page": 2, "markdown": "## Page 2"},
-            ]
-        }
-        mock_resp.raise_for_status = MagicMock()
-        mock_get.return_value = mock_resp
-
+        self._make_client_mock(MockLlamaCloud, ["# Page 1", "## Page 2"])
         from interview import llama_service
         result = llama_service.get_parsed_markdown("job-456")
-
         self.assertEqual(result, "# Page 1\n\n## Page 2")
 
-    @patch("interview.llama_service.requests.get")
-    def test_handles_list_response(self, mock_get):
-        """Must handle API returning a bare list instead of {pages:[...]}."""
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = [{"page": 1, "markdown": "# Direct list"}]
-        mock_resp.raise_for_status = MagicMock()
-        mock_get.return_value = mock_resp
-
+    @patch("interview.llama_service.LlamaCloud")
+    def test_returns_empty_when_no_markdown(self, MockLlamaCloud):
+        """Must return empty string when markdown is None."""
+        mock_client = MagicMock()
+        MockLlamaCloud.return_value = mock_client
+        mock_result = MagicMock()
+        mock_result.markdown = None
+        mock_client.parsing.get.return_value = mock_result
         from interview import llama_service
         result = llama_service.get_parsed_markdown("job-789")
-
-        self.assertEqual(result, "# Direct list")
+        self.assertEqual(result, "")
 
 
 # ─── api_document_status view tests ───────────────────────────────────────────
