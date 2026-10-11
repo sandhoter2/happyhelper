@@ -5340,25 +5340,31 @@ function switchMobileTab(tab) {
   });
 
   async function loadDocAttachList() {
-    const [docsResp, sessionDocsResp] = await Promise.all([
-      fetch('/api/documents/'),
-      fetch(`/api/session/${SESSION_ID}/documents/`),
-    ]);
-    if (!docsResp.ok || !sessionDocsResp.ok) return;
-    const { documents } = await docsResp.json();
-    const sessionData = await sessionDocsResp.json();
-    const sessionDocs = sessionData.documents || [];
-    const attachedIds = new Set(sessionDocs.filter(d => d.attached).map(d => d.id));
-
     const list = document.getElementById('docAttachList');
     const empty = document.getElementById('docAttachEmpty');
-    list.querySelectorAll('.doc-attach-row').forEach(el => el.remove());
+    try {
+      const [docsResp, sessionDocsResp] = await Promise.all([
+        fetch('/api/documents/'),
+        fetch(`/api/session/${SESSION_ID}/documents/`),
+      ]);
+      if (!docsResp.ok || !sessionDocsResp.ok) {
+        empty.textContent = 'Failed to load documents.';
+        empty.style.display = 'block';
+        return;
+      }
+      const docsData = await docsResp.json();
+      const documents = docsData.documents || [];
+      const sessionData = await sessionDocsResp.json();
+      const sessionDocs = sessionData.documents || [];
+      const attachedIds = new Set(sessionDocs.filter(d => d.attached).map(d => d.id));
 
-    if (!documents.length) {
-      empty.textContent = 'No documents uploaded.';
-      empty.style.display = 'block';
-      updateDocBadge(0);
-      return;
+      list.querySelectorAll('.doc-attach-row').forEach(el => el.remove());
+
+      if (!documents.length) {
+        empty.textContent = 'No documents uploaded.';
+        empty.style.display = 'block';
+        updateDocBadge(0);
+        return;
     }
     empty.style.display = 'none';
 
@@ -5401,7 +5407,11 @@ function switchMobileTab(tab) {
       row.appendChild(statusSpan);
       list.appendChild(row);
     });
-    updateDocBadge(attachedIds.size);
+      updateDocBadge(attachedIds.size);
+    } catch (err) {
+      const empty = document.getElementById('docAttachEmpty');
+      if (empty) { empty.textContent = 'Error loading documents.'; empty.style.display = 'block'; }
+    }
   }
 
   function updateDocBadge(n) {
