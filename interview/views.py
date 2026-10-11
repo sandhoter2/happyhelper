@@ -1664,14 +1664,25 @@ def templates_page(request):
 @login_required
 def api_templates_list(request):
     tpl_type = request.GET.get("type")
-    # Return the user's own templates plus superuser-owned shared templates
+    # Return the user's own templates plus superuser-owned shared templates,
+    # deduplicated by (name, template_type) — user's own templates take priority.
     admin_ids = list(User.objects.filter(is_superuser=True).values_list("id", flat=True))
     owner_ids = list({request.user.id} | set(admin_ids))
     qs = PromptTemplate.objects.filter(owner_id__in=owner_ids, is_active=True)
     if tpl_type:
         qs = qs.filter(template_type=tpl_type)
-    data = [
-        {
+    qs = qs.order_by("order", "created_at")
+    # User's own templates take priority in dedup; sort them to front in Python
+    own = [t for t in qs if t.owner_id == request.user.id]
+    shared = [t for t in qs if t.owner_id != request.user.id]
+    seen = set()
+    data = []
+    for t in own + shared:
+        key = (t.name.strip().lower(), t.template_type)
+        if key in seen:
+            continue
+        seen.add(key)
+        data.append({
             "id": t.pk,
             "pk": t.pk,
             "name": t.name,
@@ -1680,9 +1691,7 @@ def api_templates_list(request):
             "icon": t.icon,
             "template_type": t.template_type,
             "order": t.order,
-        }
-        for t in qs
-    ]
+        })
     return JsonResponse(data, safe=False)
 
 
