@@ -54,15 +54,13 @@ def get_job_status(job_id: str) -> dict:
 
 def get_parsed_markdown(job_id: str) -> str:
     """Fetch parsed markdown result once job is COMPLETED."""
-    url = f"{LLAMAPARSE_BASE}/api/v2/parse/{job_id}"
-    resp = requests.get(url, headers=_headers(), params={"expand": "markdown"}, timeout=30)
+    # v2 result endpoint: GET /api/v2/parse/{id}/result/markdown
+    url = f"{LLAMAPARSE_BASE}/api/v2/parse/{job_id}/result/markdown"
+    resp = requests.get(url, headers=_headers(), timeout=30)
     resp.raise_for_status()
     data = resp.json()
-    # v2 returns markdown under data.markdown.pages[].markdown
-    markdown_obj = data.get("markdown")
-    if not markdown_obj:
-        return ""
-    pages = markdown_obj.get("pages", [])
+    # Returns {"pages": [{"page": 1, "markdown": "..."}]} or a list directly
+    pages = data if isinstance(data, list) else data.get("pages", [])
     return "\n\n".join(p.get("markdown", "") for p in pages)
 
 

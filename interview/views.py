@@ -2317,7 +2317,7 @@ def api_document_status(request, document_id):
                 doc.error_message = f"LlamaParse job ended with status: {remote}"
                 doc.save(update_fields=["status", "error_message"])
         except Exception:
-            pass  # keep status=processing; client will retry
+            logger.exception("api_document_status error for doc %s job %s", doc.id, doc.llama_job_id)
 
     return JsonResponse({
         "id": str(doc.id),
