@@ -2337,10 +2337,12 @@ def api_folder_create(request):
     folder = DocumentFolder.objects.create(owner=request.user, name=name)
 
     # Provision a LlamaIndex Cloud directory + index
+    # Name format: username__folderuuid — globally unique and identifiable in LlamaIndex Cloud
+    llama_name = f"{request.user.username}__{folder.id}"
     try:
-        dir_resp = llama_service.create_directory(f"{request.user.username}/{name}")
+        dir_resp = llama_service.create_directory(llama_name)
         folder.llama_directory_id = dir_resp.get("id", "")
-        idx_resp = llama_service.create_index(folder.llama_directory_id, f"{request.user.username}/{name}")
+        idx_resp = llama_service.create_index(folder.llama_directory_id, llama_name)
         folder.llama_index_id = idx_resp.get("id", "")
         folder.save(update_fields=["llama_directory_id", "llama_index_id"])
     except Exception:
