@@ -42,6 +42,9 @@
   .doc-status.processing { background: rgb(245 158 11 / .12); color: #f59e0b; }
   .doc-status.pending { background: rgb(148 163 184 / .12); color: var(--text3); }
   .doc-status.error { background: rgb(239 68 68 / .12); color: #ef4444; }
+  .cloud-badge { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 99px; margin-left: 5px; }
+  .cloud-badge.synced { background: rgb(99 102 241 / .15); color: var(--brand); }
+  .cloud-badge.pending { background: rgb(148 163 184 / .1); color: var(--text3); }
   .doc-actions { display: flex; gap: 4px; flex-shrink: 0; }
   .empty-state { text-align: center; color: var(--text3); padding: 48px 0; }
   .empty-state-icon { font-size: 40px; margin-bottom: 12px; }
@@ -265,11 +268,16 @@ function makeDocCard(doc) {
   card.className = 'doc-card';
   card.dataset.id = doc.id;
   const statusLabel = { ready: 'Ready', processing: 'Processing…', pending: 'Pending', error: 'Error' }[doc.status] || doc.status;
+  const cloudBadge = doc.folder_id
+    ? (doc.llama_cloud_synced
+        ? `<span class="cloud-badge synced" title="File indexed in LlamaIndex Cloud">☁ Synced</span>`
+        : `<span class="cloud-badge pending" title="Not yet synced to LlamaIndex Cloud">☁ Pending</span>`)
+    : '';
   card.innerHTML = `
     <div class="doc-icon">${fileIcon(doc.filename)}</div>
     <div class="doc-info">
       <div class="doc-name" title="${escHtml(doc.filename)}">${escHtml(doc.filename)}</div>
-      <div class="doc-meta">${fmtSize(doc.size_bytes)}${doc.page_count ? ' · '+doc.page_count+' pages' : ''}${doc.status==='error'?' · '+(doc.error_message||'Unknown error'):''}</div>
+      <div class="doc-meta">${fmtSize(doc.size_bytes)}${doc.page_count ? ' · '+doc.page_count+' pages' : ''}${doc.status==='error'?' · '+(doc.error_message||'Unknown error'):''}${cloudBadge}</div>
     </div>
     <span class="doc-status ${doc.status}">${statusLabel}</span>
     <div class="doc-actions">
@@ -330,17 +338,26 @@ const _polling = new Set();
 function pollDoc(docId) {
   if (_polling.has(docId)) return;
   _polling.add(docId);
+  let errors = 0;
   const iv = setInterval(async () => {
     try {
       const sr = await fetch(`/api/documents/${docId}/status/`);
-      if (!sr.ok) { clearInterval(iv); _polling.delete(docId); return; }
+      if (!sr.ok) {
+        // Server error (e.g. 404 — doc deleted) → stop polling
+        clearInterval(iv); _polling.delete(docId); return;
+      }
+      errors = 0; // reset on successful response
       const sd = await sr.json();
       if (sd.status === 'ready' || sd.status === 'error') {
         clearInterval(iv);
         _polling.delete(docId);
-        await loadDocs();
+        await loadDocs(); // refresh to show final state + cloud sync badge
       }
-    } catch (_) {}
+    } catch (_) {
+      // Network disconnect — keep retrying up to 10 times then stop
+      errors++;
+      if (errors >= 10) { clearInterval(iv); _polling.delete(docId); }
+    }
   }, 4000);
 }
 
@@ -359,23 +376,28 @@ async function uploadFile(file, folderId) {
   if (data.status === 'processing' && data.id) {
     updateProgress(50, 'Parsing document…');
     await loadDocs(); // show the doc in processing state right away
-    let dots = 0;
+    let dots = 0, uploadErrors = 0;
     await new Promise(resolve => {
       const iv = setInterval(async () => {
         dots = (dots + 1) % 4;
         updateProgress(50 + dots * 10, 'Parsing' + '.'.repeat(dots + 1));
         try {
           const sr = await fetch(`/api/documents/${data.id}/status/`);
-          if (!sr.ok) return;
+          if (!sr.ok) { clearInterval(iv); resolve(); return; } // doc gone
+          uploadErrors = 0;
           const sd = await sr.json();
           if (sd.status === 'ready' || sd.status === 'error') {
             clearInterval(iv);
             data.status = sd.status;
             data.error_message = sd.error_message;
+            data.llama_cloud_synced = sd.llama_cloud_synced;
             await loadDocs();
             resolve();
           }
-        } catch (_) {}
+        } catch (_) {
+          uploadErrors++;
+          if (uploadErrors >= 10) { clearInterval(iv); resolve(); } // give up, reload will retry
+        }
       }, 4000);
     });
   } else {

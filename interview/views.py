@@ -2172,6 +2172,7 @@ def api_documents_list(request):
             "created_at": d.created_at.isoformat(),
             "folder_id": str(d.folder_id) if d.folder_id else None,
             "folder_name": d.folder.name if d.folder else None,
+            "llama_cloud_synced": d.llama_cloud_synced,
         }
         for d in docs
     ]
@@ -2251,10 +2252,12 @@ def api_document_upload(request):
         doc.llama_file_id = llama_file_id
         doc.save(update_fields=["llama_job_id", "llama_file_id"])
 
-        # If the folder has a cloud directory, add this file to it
+        # If the folder has a cloud directory, add this file to it immediately
         if folder and folder.llama_directory_id and llama_file_id:
             try:
                 llama_service.add_file_to_directory(folder.llama_directory_id, llama_file_id)
+                doc.llama_cloud_synced = True
+                doc.save(update_fields=["llama_cloud_synced"])
             except Exception:
                 logger.exception("add_file_to_directory failed for doc %s dir %s file %s",
                                  doc.id, folder.llama_directory_id, llama_file_id)
@@ -2298,6 +2301,17 @@ def api_document_status(request, document_id):
                 doc.page_count = page_count
                 doc.status = UserDocument.STATUS_READY
                 doc.save(update_fields=["parsed_text", "page_count", "status"])
+
+                # Retry cloud sync if not yet synced and file belongs to a folder with a directory
+                if not doc.llama_cloud_synced and doc.llama_file_id and doc.folder and doc.folder.llama_directory_id:
+                    try:
+                        llama_service.add_file_to_directory(doc.folder.llama_directory_id, doc.llama_file_id)
+                        doc.llama_cloud_synced = True
+                        doc.save(update_fields=["llama_cloud_synced"])
+                        logger.info("Cloud sync completed for doc %s on parse completion", doc.id)
+                    except Exception:
+                        logger.exception("Retry add_file_to_directory failed for doc %s", doc.id)
+
             elif remote in ("FAILED", "CANCELLED", "CANCELED", "ERROR"):
                 doc.status = UserDocument.STATUS_ERROR
                 doc.error_message = f"LlamaParse job ended with status: {remote}"
@@ -2310,6 +2324,8 @@ def api_document_status(request, document_id):
         "status": doc.status,
         "page_count": doc.page_count,
         "error_message": doc.error_message,
+        "llama_cloud_synced": doc.llama_cloud_synced,
+        "llama_file_id": doc.llama_file_id,
     })
 
 
@@ -2411,12 +2427,16 @@ def api_document_move(request, document_id):
             return JsonResponse({"error": "Folder not found"}, status=404)
 
     doc.folder = folder
-    doc.save(update_fields=["folder"])
+    if not folder:
+        doc.llama_cloud_synced = False  # removed from folder, mark as unsynced
+    doc.save(update_fields=["folder", "llama_cloud_synced"])
 
     # Add to LlamaIndex Cloud directory when moving into a folder
     if folder and folder.llama_directory_id and doc.llama_file_id:
         try:
             llama_service.add_file_to_directory(folder.llama_directory_id, doc.llama_file_id)
+            doc.llama_cloud_synced = True
+            doc.save(update_fields=["llama_cloud_synced"])
         except Exception:
             logger.exception("add_file_to_directory failed on move for doc %s dir %s",
                              doc.id, folder.llama_directory_id)

@@ -117,6 +117,23 @@ def add_file_to_directory(directory_id: str, file_id: str) -> dict:
     return resp.json()
 
 
+def get_file_status(file_id: str) -> dict:
+    """Get status of an uploaded file in LlamaIndex Cloud. Returns dict with 'status' key."""
+    url = f"{LLAMAPARSE_BASE}/api/v1/beta/files/{file_id}"
+    resp = requests.get(url, headers=_headers(), timeout=30)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def list_directory_files(directory_id: str) -> list:
+    """List files in a LlamaIndex Cloud directory. Returns list of file dicts."""
+    url = f"{LLAMAPARSE_BASE}/api/v1/beta/directories/{directory_id}/files"
+    resp = requests.get(url, headers=_headers(), timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+    return data if isinstance(data, list) else data.get("files", data.get("items", []))
+
+
 def delete_directory(directory_id: str) -> bool:
     """Delete a cloud directory. Returns True on success."""
     url = f"{LLAMAPARSE_BASE}/api/v1/beta/directories/{directory_id}"
