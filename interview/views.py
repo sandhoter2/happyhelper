@@ -1421,6 +1421,77 @@ def stripe_webhook(request):
     return HttpResponse(status=200)
 
 
+# ── LLAMAPARSE WEBHOOK ──────────────────────────────────────────────────────────
+
+@csrf_exempt
+@require_POST
+def llamaparse_webhook(request):
+    """Receive LlamaParse job-completion notifications and update document status."""
+    import hmac
+    import hashlib
+
+    secret = settings.LLAMAPARSE_WEBHOOK_SECRET
+    if secret:
+        sig = request.META.get("HTTP_X_LLAMAINDEX_SIGNATURE", "")
+        expected = hmac.new(secret.encode(), request.body, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected):
+            return HttpResponse(status=400)
+
+    try:
+        data = json.loads(request.body)
+    except (ValueError, KeyError):
+        return HttpResponse(status=400)
+
+    job_id = data.get("id") or data.get("job_id", "")
+    status = (data.get("status") or "").upper()
+    if not job_id:
+        return HttpResponse(status=200)
+
+    try:
+        doc = UserDocument.objects.get(llama_job_id=job_id, status=UserDocument.STATUS_PROCESSING)
+    except UserDocument.DoesNotExist:
+        return HttpResponse(status=200)
+
+    try:
+        if status in ("COMPLETED", "SUCCESS"):
+            config = _get_parser_config()
+            markdown = llama_service.get_parsed_markdown(job_id)
+            page_count = llama_service.estimate_page_count(markdown)
+            existing_pages = UserDocument.objects.filter(
+                owner=doc.owner, status=UserDocument.STATUS_READY
+            ).exclude(id=doc.id).aggregate(t=models.Sum("page_count"))["t"] or 0
+            if (existing_pages + page_count) > config.max_total_pages:
+                llama_service.delete_job(job_id)
+                doc.status = UserDocument.STATUS_ERROR
+                doc.error_message = "Page limit exceeded"
+                doc.save(update_fields=["status", "error_message"])
+            else:
+                doc.parsed_text = markdown
+                doc.page_count = page_count
+                doc.status = UserDocument.STATUS_READY
+                doc.save(update_fields=["parsed_text", "page_count", "status"])
+                logger.info("Webhook: doc %s ready via job %s", doc.id, job_id)
+
+                if not doc.llama_cloud_synced and doc.llama_file_id and doc.folder and doc.folder.llama_directory_id:
+                    try:
+                        llama_service.add_file_to_directory(doc.folder.llama_directory_id, doc.llama_file_id)
+                        doc.llama_cloud_synced = True
+                        doc.save(update_fields=["llama_cloud_synced"])
+                    except Exception:
+                        logger.exception("Webhook: cloud sync failed for doc %s", doc.id)
+
+        elif status in ("FAILED", "CANCELLED", "CANCELED", "ERROR", "NOT_FOUND"):
+            doc.status = UserDocument.STATUS_ERROR
+            doc.error_message = f"LlamaParse job ended with status: {status}"
+            doc.save(update_fields=["status", "error_message"])
+            logger.warning("Webhook: doc %s error via job %s status %s", doc.id, job_id, status)
+
+    except Exception:
+        logger.exception("llamaparse_webhook error for job %s doc %s", job_id, doc.id)
+
+    return HttpResponse(status=200)
+
+
 # ── PER-USER ANALYTICS ─────────────────────────────────────────────────────────
 
 @csrf_exempt
@@ -2243,7 +2314,7 @@ def api_document_upload(request):
     )
 
     try:
-        job_info = llama_service.upload_file(upload, filename)
+        job_info = llama_service.upload_file(upload, filename, webhook_id=settings.LLAMAPARSE_WEBHOOK_ID)
         job_id = job_info.get("id") or job_info.get("job_id", "")
         llama_file_id = job_info.get("file_id", "")
         doc.llama_job_id = job_id

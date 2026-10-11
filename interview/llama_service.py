@@ -15,7 +15,7 @@ def _headers():
     return {"Authorization": f"Bearer {settings.LLAMAPARSE_API_KEY}"}
 
 
-def upload_file(file_obj, filename: str) -> dict:
+def upload_file(file_obj, filename: str, webhook_id: str = "") -> dict:
     """Upload a file and start a parse job. Returns job dict with 'id' and 'status'."""
     # Step 1: upload file to get a file_id
     files_url = f"{LLAMAPARSE_BASE}/api/v1/beta/files"
@@ -31,10 +31,13 @@ def upload_file(file_obj, filename: str) -> dict:
 
     # Step 2: start a parse job
     parse_url = f"{LLAMAPARSE_BASE}/api/v2/parse"
+    body = {"file_id": file_id, "tier": "fast", "version": "latest"}
+    if webhook_id:
+        body["webhook_id"] = webhook_id
     resp = requests.post(
         parse_url,
         headers={**_headers(), "Content-Type": "application/json"},
-        json={"file_id": file_id, "tier": "fast", "version": "latest"},
+        json=body,
         timeout=60,
     )
     resp.raise_for_status()
