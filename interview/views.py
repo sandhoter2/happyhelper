@@ -1218,6 +1218,9 @@ def settings_page(request):
     return render(request, "interview/settings.html", {"current": current, "profile": profile, "msg": msg})
 
 
+_DOC_PER_DOC_CHARS = 3000   # ~750 tokens per document
+_DOC_TOTAL_CHARS   = 6000   # ~1500 tokens total across all documents
+
 def _get_session_document_context(session: InterviewSession) -> str:
     """Build a combined text context from all READY documents attached to this session."""
     attached = SessionDocument.objects.filter(
@@ -1226,11 +1229,18 @@ def _get_session_document_context(session: InterviewSession) -> str:
     if not attached:
         return ""
     parts = []
+    total = 0
     for sd in attached:
+        if total >= _DOC_TOTAL_CHARS:
+            break
         doc = sd.document
         text = doc.parsed_text.strip()
         if text:
-            parts.append(f"[Document: {doc.original_filename}]\n{text[:12000]}")
+            chunk = text[:_DOC_PER_DOC_CHARS]
+            remaining = _DOC_TOTAL_CHARS - total
+            chunk = chunk[:remaining]
+            parts.append(f"[Document: {doc.original_filename}]\n{chunk}")
+            total += len(chunk)
     return "\n\n".join(parts)
 
 
