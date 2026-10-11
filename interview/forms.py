@@ -53,7 +53,7 @@ class UserProfileForm(forms.ModelForm):
 
     class Meta:
         model = UserProfile
-        fields = ["display_name", "role", "company", "theme", "background"]
+        fields = ["display_name", "role", "company", "theme", "background", "doc_context_chars"]
         widgets = {
             "display_name": forms.TextInput(attrs={"class": "form-control", "placeholder": "How you'd like to be called"}),
             "role": forms.Select(attrs={"class": "form-control"}),
@@ -63,6 +63,7 @@ class UserProfileForm(forms.ModelForm):
                 "class": "form-control", "rows": 8,
                 "placeholder": "Resume summary, skills, experience — this auto-populates the background field in new sessions.",
             }),
+            "doc_context_chars": forms.NumberInput(attrs={"class": "form-control", "id": "docContextInput", "min": "1000", "step": "1000"}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -72,6 +73,19 @@ class UserProfileForm(forms.ModelForm):
             self.fields["first_name"].initial = user.first_name
             self.fields["last_name"].initial = user.last_name
             self.fields["email"].initial = user.email
+            # Set slider max based on plan
+            try:
+                profile = user.profile
+                plan_max = profile.doc_context_max
+            except Exception:
+                plan_max = UserProfile.DOC_CONTEXT_FREE_MAX
+            self.fields["doc_context_chars"].widget.attrs["max"] = str(plan_max)
+            self._doc_context_max = plan_max
+
+    def clean_doc_context_chars(self):
+        value = self.cleaned_data.get("doc_context_chars", UserProfile.DOC_CONTEXT_FREE_MAX)
+        max_val = getattr(self, "_doc_context_max", UserProfile.DOC_CONTEXT_FREE_MAX)
+        return max(1000, min(value, max_val))
 
     def save_user(self, user, commit=True):
         user.first_name = self.cleaned_data.get("first_name", "")

@@ -1228,16 +1228,22 @@ def _get_session_document_context(session: InterviewSession) -> str:
     ).select_related("document").order_by("attached_at")
     if not attached:
         return ""
+
+    try:
+        total_limit = session.owner.profile.effective_doc_context_chars
+    except Exception:
+        total_limit = _DOC_TOTAL_CHARS
+
     parts = []
     total = 0
     for sd in attached:
-        if total >= _DOC_TOTAL_CHARS:
+        if total >= total_limit:
             break
         doc = sd.document
         text = doc.parsed_text.strip()
         if text:
             chunk = text[:_DOC_PER_DOC_CHARS]
-            remaining = _DOC_TOTAL_CHARS - total
+            remaining = total_limit - total
             chunk = chunk[:remaining]
             parts.append(f"[Document: {doc.original_filename}]\n{chunk}")
             total += len(chunk)

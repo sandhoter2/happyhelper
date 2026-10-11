@@ -156,6 +156,29 @@
         </div>
       </div>
 
+      {% if profile.plan != 'free' %}
+      <div class="profile-section">
+        <h2 class="profile-section-title">Document context size</h2>
+        <div class="form-group">
+          <label for="docContextInput">Context limit: <strong id="docContextLabel">{{ profile.doc_context_chars }}</strong> chars (~<span id="docContextTokens">0</span> tokens)</label>
+          {{ form.doc_context_chars }}
+          <input type="range" id="docContextSlider"
+            min="1000"
+            max="{{ profile.doc_context_max }}"
+            step="1000"
+            value="{{ profile.doc_context_chars }}"
+            class="form-range"
+            style="width:100%;margin-top:8px;"
+          >
+          <div class="form-hint">
+            Controls how much document text is included in each AI response.
+            More context = richer answers but slower responses.
+            Your plan maximum: <strong>{{ profile.doc_context_max }}</strong> chars.
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
       <div class="form-actions">
         <button type="submit" class="btn btn-primary">Save profile</button>
         <a href="/" class="btn btn-secondary">Cancel</a>
@@ -176,5 +199,32 @@ function copyToken(btn) {
     setTimeout(() => btn.textContent = 'Copy', 2000);
   });
 }
+
+(function() {
+  const slider = document.getElementById('docContextSlider');
+  const input = document.getElementById('docContextInput');
+  const label = document.getElementById('docContextLabel');
+  const tokenSpan = document.getElementById('docContextTokens');
+  if (!slider || !input) return;
+
+  function syncFromSlider() {
+    const v = parseInt(slider.value, 10);
+    input.value = v;
+    label.textContent = v.toLocaleString();
+    tokenSpan.textContent = Math.round(v / 4).toLocaleString();
+  }
+
+  function syncFromInput() {
+    const v = Math.max(parseInt(input.min)||1000, Math.min(parseInt(input.max)||6000, parseInt(input.value)||6000));
+    slider.value = v;
+    input.value = v;
+    label.textContent = v.toLocaleString();
+    tokenSpan.textContent = Math.round(v / 4).toLocaleString();
+  }
+
+  slider.addEventListener('input', syncFromSlider);
+  input.addEventListener('change', syncFromInput);
+  syncFromSlider();
+})();
 </script>
 {% endblock %}

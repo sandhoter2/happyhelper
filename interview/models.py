@@ -26,6 +26,11 @@ class UserProfile(models.Model):
     ]
     FREE_SESSION_LIMIT = 5
 
+    # Document context char limits per plan
+    DOC_CONTEXT_FREE_MAX  = 6_000   # ~1 500 tokens
+    DOC_CONTEXT_PRO_MAX   = 20_000  # ~5 000 tokens
+    DOC_CONTEXT_TEAM_MAX  = 30_000  # ~7 500 tokens
+
     THEME_DARK = "dark"
     THEME_LIGHT = "light"
     THEME_CHOICES = [
@@ -42,6 +47,7 @@ class UserProfile(models.Model):
                                  help_text="Static token used by the Electron overlay to authenticate API calls.")
     plan = models.CharField(max_length=10, choices=PLAN_CHOICES, default=PLAN_FREE)
     theme = models.CharField(max_length=10, choices=THEME_CHOICES, default=THEME_DARK)
+    doc_context_chars = models.IntegerField(default=6_000, help_text="Max total document chars sent to AI per session.")
     stripe_customer_id = models.CharField(max_length=64, blank=True, default="")
     stripe_subscription_id = models.CharField(max_length=64, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -49,6 +55,19 @@ class UserProfile(models.Model):
     @property
     def is_free(self):
         return self.plan == self.PLAN_FREE
+
+    @property
+    def doc_context_max(self):
+        if self.plan == self.PLAN_TEAM:
+            return self.DOC_CONTEXT_TEAM_MAX
+        if self.plan == self.PLAN_PRO:
+            return self.DOC_CONTEXT_PRO_MAX
+        return self.DOC_CONTEXT_FREE_MAX
+
+    @property
+    def effective_doc_context_chars(self):
+        """Stored preference clamped to plan maximum."""
+        return min(self.doc_context_chars, self.doc_context_max)
 
     @property
     def session_limit(self):
