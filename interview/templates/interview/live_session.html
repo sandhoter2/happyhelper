@@ -2748,6 +2748,36 @@ let _tvCaptionTimer  = null;    // 5 s caption poll (audio-less mode only)
 let theirVoiceActive = false;
 let _tvActiveSpeaker = '';      // updated by vision scan
 let _lastCaptionText = '';
+let _tvMeetingTitleSet = false; // prevent repeated auto-title updates
+
+// Apply a detected meeting title to the session (replace or append).
+// mode 'replace' → overwrites the current title
+// mode 'append'  → appends " · <title>" if not already present
+async function _applyMeetingTitle(title, mode) {
+  if (!title) return;
+  const h1 = document.querySelector('.session-info h1');
+  const current = (h1 ? h1.textContent : SESSION_TITLE).trim();
+  let next;
+  if (mode === 'append') {
+    if (current.includes(title)) return; // already there
+    next = current ? current + ' · ' + title : title;
+  } else {
+    if (current === title) return; // no change
+    next = title;
+  }
+  try {
+    const r = await fetch(`/api/session/${SESSION_ID}/edit/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+      body: JSON.stringify({ title: next }),
+    });
+    if (r.ok) {
+      if (h1) h1.textContent = next;
+      document.title = next + ' — Live';
+      toast(`Meeting: "${next}"`, 'success', 4000);
+    }
+  } catch (_) {}
+}
 
 async function toggleTheirVoice() {
   if (theirVoiceActive) { stopTheirVoice(); } else { await startTheirVoice(); }
@@ -2819,6 +2849,11 @@ async function startTheirVoice() {
       }
       // Reflect active speaker in status bar
       if (_tvActiveSpeaker) setStatus(`🎤 ${_tvActiveSpeaker} is speaking`);
+      // Auto-set meeting title on first scan only (replace); manual scans can append
+      if (!_tvMeetingTitleSet && data.title && data.title.trim()) {
+        _tvMeetingTitleSet = true;
+        await _applyMeetingTitle(data.title.trim(), 'replace');
+      }
     } catch (_) {}
   };
   _runScan(); // immediate
@@ -3009,7 +3044,7 @@ function stopTheirVoice() {
   if (btn) { btn.classList.remove('active'); btn.setAttribute('aria-pressed', 'false'); btn.title = 'Capture Teams voice (🔊)'; }
   setStatus('Speaker capture off');
   _tvActiveSpeaker = ''; _lastCaptionText = ''; _lastSeenCaption = '';
-  _tvAccumText = ''; _tvLastAIMs = 0;
+  _tvAccumText = ''; _tvLastAIMs = 0; _tvMeetingTitleSet = false;
 }
 
 async function sendAudioChunk(blob, mimeType, speaker = 'microphone') {
@@ -5166,20 +5201,11 @@ if (SESSION_TYPE === 'meeting') {
       renderParticipants();
       toast(added ? `Added ${added} participant${added > 1 ? 's' : ''} from screen` : 'Participants already in list', added ? 'success' : 'info');
 
-      // Auto-update session title if detected
+      // Update session title — replace on first detection, append if title already set
       if (detectedTitle) {
-        try {
-          const tRes = await fetch(`/api/session/${SESSION_ID}/edit/`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
-            body: JSON.stringify({ title: detectedTitle }),
-          });
-          if (tRes.ok) {
-            const titleEl = document.querySelector('.session-info h1');
-            if (titleEl) titleEl.textContent = detectedTitle;
-            toast(`Meeting title: "${detectedTitle}"`, 'info', 3000);
-          }
-        } catch(e) {}
+        const mode = _tvMeetingTitleSet ? 'append' : 'replace';
+        _tvMeetingTitleSet = true;
+        await _applyMeetingTitle(detectedTitle, mode);
       }
 
       // Refresh calendar if connected (calendar knows about this meeting)
