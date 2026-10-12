@@ -1055,7 +1055,7 @@ kbd { background:var(--bg3); border:1px solid var(--border); border-radius:4px; 
   .transcript-entry { padding: 8px 10px; margin-bottom: 7px; }
 
   /* Multi-select on mobile: hide header button (too cramped), show checkboxes at low opacity */
-  #tcSelectBtn { display: none !important; }
+  #tcSelectBtn, #tcSelectAllBtn { display: none !important; }
   .entry-select-cb { opacity: 0.2 !important; }
   body.tc-select-mode .entry-select-cb,
   .transcript-entry.selected .entry-select-cb { opacity: 1 !important; }
@@ -1410,6 +1410,7 @@ body.tc-select-mode .transcript-entry.selected::before, .transcript-entry.select
         <button class="btn btn-ghost btn-xs" onclick="copyTranscriptLive()" title="Copy the transcript" aria-label="Copy the transcript">{% include "interview/_icon.html" with name="copy" %}</button>
         <button class="btn btn-ghost btn-xs" onclick="exportSession()" title="Export session as Markdown">{% include "interview/_icon.html" with name="download" %} Export</button>
         <button class="btn btn-ghost btn-xs" onclick="clearTranscript()" title="Clear transcript" aria-label="Clear transcript">{% include "interview/_icon.html" with name="trash" %}</button>
+        <button class="btn btn-ghost btn-xs" id="tcSelectAllBtn" onclick="selectAllTranscript()" title="Select all transcript entries">{% include "interview/_icon.html" with name="select" %} All</button>
         <button class="btn btn-ghost btn-xs" id="tcSelectBtn" onclick="toggleSelectMode()" title="Select lines to ask about">{% include "interview/_icon.html" with name="select" %} Select</button>
         <span id="transcriptCount" title="Lines in the transcript" style="font-size:12px;color:var(--text3);font-family:var(--sans)">{{ transcripts.count }}</span>
         <button class="btn btn-ghost btn-xs" id="transcriptMinBtn" onclick="minimizeTranscript()" title="Hide the transcript" aria-label="Hide the transcript">{% include "interview/_icon.html" with name="collapse" %}</button>
@@ -3443,6 +3444,15 @@ function clearSelection() {
   _updateMultiBar();
 }
 
+function selectAllTranscript() {
+  if (!_tcSelectMode) toggleSelectMode();
+  document.querySelectorAll('#transcriptPanel .transcript-entry').forEach(e => {
+    if (!_tcSelected.has(e)) { _tcSelected.add(e); e.classList.add('selected'); }
+  });
+  _updateMultiBar();
+}
+window.selectAllTranscript = selectAllTranscript;
+
 function sendSelectedToAI() {
   if (!_tcSelected.size) return;
   const ordered = Array.from(document.querySelectorAll('#transcriptPanel .transcript-entry'))
@@ -4204,6 +4214,8 @@ function triggerAI(question, fromVoice) {
   if (fInput) fInput.value = '';
   micManualAccum = '';
   micLastCommitted = '';
+  // Reset Their Voice accumulation so the next capture starts fresh
+  if (typeof _tvAccumText !== 'undefined') { _tvAccumText = ''; _tvLastAIMs = Date.now(); }
   // Clear the interim transcript entry so the panel looks clean after submit
   interimEntry.style.display = 'none';
   interimText.textContent = 'Transcribing…';
