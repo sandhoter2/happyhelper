@@ -2514,14 +2514,13 @@ function makeMicRecognition() {
       else interimStr += t;
     }
 
-    // Show live interim speech in both the chat input AND the transcript panel (real-time)
+    // Show live interim speech in the transcript preview strip (not question input in manual mode)
     if (interimStr) {
-      // In manual mode, prefix accumulated finals so user sees the whole utterance so far
-      const displayText = transcribeMode === 'manual' && micManualAccum
-        ? micManualAccum + ' ' + interimStr
-        : interimStr;
-      setMicInputText(displayText);
-      interimText.textContent = displayText;
+      if (transcribeMode !== 'manual') {
+        // Auto/timed: mirror interim into question input so user sees what's being said
+        setMicInputText(interimStr);
+      }
+      interimText.textContent = interimStr;
       interimEntry.style.display = 'flex';
       if (transcriptPlaceholder) transcriptPlaceholder.style.display = 'none';
       scrollTranscript();
@@ -2535,24 +2534,21 @@ function makeMicRecognition() {
       if (transcriptPlaceholder && transcriptCount === 0) transcriptPlaceholder.style.display = 'flex';
       if (text === micLastCommitted) return;
       micLastCommitted = text;
-      console.log('[onresult final] transcribeMode=' + transcribeMode + ' text=' + text.slice(0, 40));
 
       if (transcribeMode !== 'manual') {
-        // Timed / dynamic: save text and optionally submit to AI
+        // Auto / timed: save, fill question input, optionally trigger AI
         setMicInputText(text);
         saveMicToServer(text);
         addTranscriptEntryUI(text, 'microphone');
         refreshMHSuggestions();
         if (autoAI && (transcribeMode !== 'dynamic' || isQuestionEnding(text))) triggerAI(text, true);
       } else {
-        // Manual: accumulate finals — do NOT save or add to transcript until committed
-        micManualAccum = (micManualAccum ? micManualAccum + ' ' : '') + text;
-        setMicInputText(micManualAccum);
-        interimText.textContent = micManualAccum;
-        if (interimLabel) { interimLabel.textContent = 'ACCUMULATING'; interimLabel.style.color = 'var(--yellow)'; }
-        interimEntry.style.display = 'flex';
-        if (transcriptPlaceholder) transcriptPlaceholder.style.display = 'none';
-        scrollTranscript();
+        // Manual mode: YOUR voice → transcript only, never auto-fills question input
+        // (Their Voice 🔊 fills the question input for the interviewer's questions)
+        saveMicToServer(text);
+        addTranscriptEntryUI(text, 'microphone');
+        refreshMHSuggestions();
+        micManualAccum = '';
       }
     }
   };

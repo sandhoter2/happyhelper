@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import subprocess
 from dotenv import load_dotenv
 
 try:
@@ -76,6 +77,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "interview.context_processors.app_version",
             ],
         },
     },
@@ -153,3 +155,19 @@ LLAMAPARSE_WEBHOOK_SECRET = os.environ.get("LLAMAPARSE_WEBHOOK_SECRET", "")
 
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
+
+# Git commit hash for version tracking in admin portal
+def _git_commit():
+    # Render sets this env var automatically on every deploy
+    v = os.environ.get("RENDER_GIT_COMMIT", "")
+    if v:
+        return v[:5]
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short=5", "HEAD"],
+            cwd=BASE_DIR, stderr=subprocess.DEVNULL, timeout=2
+        ).decode().strip()
+    except Exception:
+        return "local"
+
+GIT_COMMIT = _git_commit()
