@@ -2821,6 +2821,23 @@ async function startTheirVoice() {
   }
 }
 
+// ── Single save path for all Their Voice entries ─────────────────────────────
+// Always saves to DB via /transcript/ — completely independent of mic
+// transcribeMode (manual / auto / 5s / 30s). Never skips.
+async function _tvSaveEntry(text, speakerName) {
+  if (!text || !theirVoiceActive) return;
+  // Update live transcript UI immediately
+  addTranscriptEntryUI(text, 'system', speakerName || 'Interviewer');
+  // Persist to DB — irrespective of any mic mode setting
+  try {
+    await fetch(`/api/session/${SESSION_ID}/transcript/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+      body: JSON.stringify({ transcripts: [{ content: text, type: 'system', speaker_name: speakerName || '' }] }),
+    });
+  } catch (_) {}
+}
+
 // ── Audio mode (primary) ──────────────────────────────────────────────────────
 function _startTVAudio(audioTracks) {
   const audioStream = new MediaStream(audioTracks);
@@ -2831,7 +2848,7 @@ function _startTVAudio(audioTracks) {
     _startTVCaptions(); return;
   }
   setStatus('🎙 Capturing Teams audio…');
-  toast('🎙 Audio capture active — words will appear every ~8 s. Speaker detected every 15 s.', 'success', 6000);
+  toast('🎙 Audio capture active — words appear every ~8 s. Speaker updated every 15 s.', 'success', 6000);
 
   _tvAudioRecorder.ondataavailable = async (e) => {
     if (!e.data || e.data.size < 500 || !theirVoiceActive) return;
@@ -2840,18 +2857,16 @@ function _startTVAudio(audioTracks) {
     const form = new FormData();
     form.append('audio', e.data, `speaker.${ext}`);
     form.append('speaker', 'system');
-    form.append('speaker_name', speakerName);
+    form.append('no_save', '1');   // _tvSaveEntry handles the DB save below
     try {
       const res = await fetch(`/api/session/${SESSION_ID}/transcribe/`, {
         method: 'POST', headers: { 'X-CSRFToken': getCookie('csrftoken') }, body: form
       });
       const d = await res.json();
-      if (d.text && d.text.trim() && theirVoiceActive) {
-        addTranscriptEntryUI(d.text.trim(), 'system', speakerName);
-      }
+      if (d.text && d.text.trim()) await _tvSaveEntry(d.text.trim(), speakerName);
     } catch (_) {}
   };
-  _tvAudioRecorder.start(8000); // send chunk every 8 s
+  _tvAudioRecorder.start(8000);
 }
 
 // ── Caption mode (no-audio fallback) ─────────────────────────────────────────
@@ -2859,7 +2874,7 @@ function _startTVCaptions() {
   setStatus('📝 Reading Teams captions…');
   _tvCaptionTimer = setInterval(async () => {
     if (!theirVoiceActive) return;
-    const blob = await _captureFrame(0.22); // bottom 22 % — Teams caption strip
+    const blob = await _captureFrame(0.22);
     if (!blob) return;
     const form = new FormData();
     form.append('frame', blob, 'caption.jpg');
@@ -2870,13 +2885,12 @@ function _startTVCaptions() {
       const data = await res.json();
       const text = (data.text || '').trim();
       if (!text || text === _lastCaptionText) return;
-      // Ignore if it's just an in-progress extension of the last caption
       if (_lastCaptionText && text.startsWith(_lastCaptionText.slice(0, 40))) {
-        _lastCaptionText = text; return;
+        _lastCaptionText = text; return; // caption still updating — wait for change
       }
       _lastCaptionText = text;
       const speakerName = data.speaker || _tvActiveSpeaker || 'Interviewer';
-      addTranscriptEntryUI(text, 'system', speakerName);
+      await _tvSaveEntry(text, speakerName); // saves to DB + UI
     } catch (_) {}
   }, 5000);
 }

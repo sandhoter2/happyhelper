@@ -678,6 +678,10 @@ def api_transcribe(request, session_id):
     speaker = speaker_hint if speaker_hint in (TranscriptEntry.TYPE_MIC, TranscriptEntry.TYPE_SYSTEM) else TranscriptEntry.TYPE_MIC
     speaker_name = request.POST.get("speaker_name", "")
 
+    # Callers that manage their own save (e.g. Their Voice) pass no_save=1
+    if request.POST.get("no_save") == "1":
+        return JsonResponse({"text": text, "speaker": speaker, "speaker_name": speaker_name})
+
     entry = TranscriptEntry.objects.create(
         session=session,
         content=text,
@@ -1017,15 +1021,7 @@ def api_extract_captions(request, session_id):
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
 
-    if text:
-        speaker_name = speaker or "Interviewer"
-        TranscriptEntry.objects.create(
-            session=session,
-            content=text,
-            speaker_type=TranscriptEntry.TYPE_SYSTEM,
-            speaker_name=speaker_name,
-        )
-
+    # Saving is handled by the caller via /transcript/ — this endpoint only extracts.
     return JsonResponse({"text": text, "speaker": speaker})
 
 
