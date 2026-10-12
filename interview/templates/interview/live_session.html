@@ -1736,6 +1736,7 @@ body.tc-select-mode .transcript-entry.selected::before, .transcript-entry.select
 
 <div class="bottom-bar">
   <button class="mic-btn" id="micBtn" onclick="toggleMic()" title="Microphone (M)" aria-label="Microphone" aria-pressed="false">{% include "interview/_icon.html" with name="mic" %}</button>
+  <button class="mic-btn" id="theirVoiceBtn" onclick="toggleTheirVoice()" title="Capture Teams / speaker audio — share the Teams tab or screen when prompted" aria-label="Their voice" aria-pressed="false" style="font-size:17px;background:var(--bg2)">🔊</button>
   <span id="micModeBadge" onclick="toggleTCPanel()" title="Transcribe mode — click to change" style="font-size:12px;font-family:var(--sans);color:var(--text3);padding:2px 7px;background:var(--bg3);border-radius:6px;border:1px solid var(--border);cursor:pointer;white-space:nowrap;line-height:1.8;transition:color .2s,border-color .2s">30s</span>
 
   <!-- Conversation Insights split button + dropdown -->
@@ -2708,6 +2709,132 @@ function stopMic() {
   stopRawRecording();
 }
 
+
+// ── Their Voice: capture Teams / speaker audio via getDisplayMedia ────────────
+let theirVoiceStream = null;
+let theirVoiceRecognition = null;
+let theirVoiceActive = false;
+
+async function toggleTheirVoice() {
+  if (theirVoiceActive) {
+    stopTheirVoice();
+  } else {
+    await startTheirVoice();
+  }
+}
+
+async function startTheirVoice() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    toast('Speech recognition not supported. Use Chrome or Edge.', 'error', 6000);
+    return;
+  }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+    toast('Tab/screen audio capture not supported in this browser.', 'error', 6000);
+    return;
+  }
+
+  toast('Select the Teams tab (or "Entire screen") — make sure "Share audio" is checked.', 'info', 7000);
+
+  try {
+    theirVoiceStream = await navigator.mediaDevices.getDisplayMedia({
+      video: false,
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        sampleRate: 16000,
+      }
+    });
+  } catch (err) {
+    if (err.name === 'NotAllowedError') {
+      toast('Screen audio share cancelled.', 'info');
+    } else {
+      toast('Could not capture speaker audio: ' + err.message, 'error', 7000);
+    }
+    return;
+  }
+
+  const audioTracks = theirVoiceStream.getAudioTracks();
+  if (!audioTracks.length) {
+    theirVoiceStream.getTracks().forEach(t => t.stop());
+    theirVoiceStream = null;
+    toast('No audio track found. Make sure "Share audio" (or "Share tab audio") is checked in the share dialog.', 'warn', 8000);
+    return;
+  }
+
+  theirVoiceActive = true;
+  const btn = document.getElementById('theirVoiceBtn');
+  if (btn) { btn.classList.add('active'); btn.setAttribute('aria-pressed', 'true'); btn.title = 'Stop their voice capture'; }
+  setStatus('Capturing speaker audio…');
+  toast('Capturing Teams audio. Speak normally in Teams — their voice will appear in the transcript.', 'success', 5000);
+
+  // Stop cleanly if the user ends the share from the browser toolbar
+  theirVoiceStream.getAudioTracks()[0].addEventListener('ended', () => stopTheirVoice());
+
+  // Feed stream through Web Audio → a new MediaStream for SpeechRecognition
+  let srStream;
+  try {
+    const ctx = new AudioContext();
+    const src = ctx.createMediaStreamSource(theirVoiceStream);
+    const dest = ctx.createMediaStreamDestination();
+    src.connect(dest);
+    srStream = dest.stream;
+  } catch (_) {
+    srStream = theirVoiceStream; // fallback: use the stream directly
+  }
+
+  theirVoiceRecognition = new SpeechRecognition();
+  theirVoiceRecognition.continuous = true;
+  theirVoiceRecognition.interimResults = false;
+  theirVoiceRecognition.lang = 'en-US';
+
+  theirVoiceRecognition.onresult = (event) => {
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      if (!event.results[i].isFinal) continue;
+      const text = event.results[i][0].transcript.trim();
+      if (!text) continue;
+      const speakerName = (typeof getActiveSpeakerName === 'function' && getActiveSpeakerName()) || 'Interviewer';
+      saveSpeakerToServer(text, speakerName);
+      addTranscriptEntryUI(text, 'system', speakerName);
+    }
+  };
+
+  theirVoiceRecognition.onerror = (e) => {
+    if (e.error === 'no-speech') return;
+    if (e.error === 'not-allowed') { toast('Microphone permission denied for speaker capture.', 'error', 6000); stopTheirVoice(); return; }
+    console.warn('theirVoiceRecognition error:', e.error);
+  };
+
+  theirVoiceRecognition.onend = () => {
+    if (theirVoiceActive) {
+      try { theirVoiceRecognition.start(); } catch (_) {}
+    }
+  };
+
+  try {
+    theirVoiceRecognition.start();
+  } catch (err) {
+    toast('Could not start speech recognition for speaker audio: ' + err.message, 'error', 6000);
+    stopTheirVoice();
+  }
+}
+
+function stopTheirVoice() {
+  theirVoiceActive = false;
+  if (theirVoiceRecognition) { theirVoiceRecognition.onend = null; try { theirVoiceRecognition.stop(); } catch (_) {} theirVoiceRecognition = null; }
+  if (theirVoiceStream) { theirVoiceStream.getTracks().forEach(t => t.stop()); theirVoiceStream = null; }
+  const btn = document.getElementById('theirVoiceBtn');
+  if (btn) { btn.classList.remove('active'); btn.setAttribute('aria-pressed', 'false'); btn.title = 'Capture Teams / speaker audio'; }
+  setStatus('Speaker capture off');
+}
+
+function saveSpeakerToServer(text, speakerName) {
+  fetch(`/api/session/${SESSION_ID}/transcript/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+    body: JSON.stringify({ transcripts: [{ content: text, type: 'system', speaker_name: speakerName }] })
+  }).catch(() => {});
+}
 
 async function sendAudioChunk(blob, mimeType, speaker = 'microphone') {
   if (blob.size < 500) return;
@@ -4184,6 +4311,7 @@ function endSession() {
   if (!confirm('End this session?')) return;
   clearInterval(timerInterval);
   stopMic();
+  stopTheirVoice();
   _launchConfetti();
   setTimeout(() => {
     fetch(`/api/session/${SESSION_ID}/end/`, { method: 'POST', headers: {'X-CSRFToken': getCookie('csrftoken')} })
