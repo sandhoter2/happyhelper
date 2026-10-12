@@ -2840,51 +2840,72 @@ async function _tvSaveEntry(text, speakerName) {
 }
 
 // ── Audio mode (primary) ──────────────────────────────────────────────────────
+// Uses explicit stop→transcribe→restart loop instead of timeslice, because
+// MediaRecorder.start(timeslice) for captured tab audio silently stops in
+// Chrome after the first event on some streams. Each 6 s cycle:
+//   1. Start a fresh recorder
+//   2. After 6 s call .stop()
+//   3. onstop: collect blob, POST to Whisper, save entry, schedule next cycle
+let _tvAudioLoopTimer = null;
+
 function _startTVAudio(audioTracks) {
   if (!theirVoiceActive || !audioTracks.length) return;
-  const audioStream = new MediaStream(audioTracks);
   _tvAudioMime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
+  setStatus('🎙 Capturing Teams audio…');
+  _tvAudioLoop();
+}
+
+function _tvAudioLoop() {
+  if (!theirVoiceActive) return;
+
+  // Grab the freshest live audio tracks each cycle
+  const liveTracks = theirVoiceStream ? theirVoiceStream.getAudioTracks().filter(t => t.readyState === 'live') : [];
+  if (!liveTracks.length) {
+    setStatus('📝 Audio track ended — caption mode');
+    _startTVCaptions();
+    return;
+  }
+
+  const audioStream = new MediaStream(liveTracks);
   let recorder;
   try { recorder = new MediaRecorder(audioStream, { mimeType: _tvAudioMime }); }
-  catch (e) {
-    toast('MediaRecorder failed — falling back to caption mode.', 'warn', 5000);
-    _startTVCaptions(); return;
-  }
+  catch (e) { _startTVCaptions(); return; }
+
   _tvAudioRecorder = recorder;
-  setStatus('🎙 Capturing Teams audio…');
+  const chunks = [];
+  recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
 
-  recorder.ondataavailable = async (e) => {
-    if (!e.data || e.data.size < 100 || !theirVoiceActive) return;
-    const ext = _tvAudioMime.includes('ogg') ? 'ogg' : 'webm';
-    const speakerName = _tvActiveSpeaker || 'Interviewer';
-    const form = new FormData();
-    form.append('audio', e.data, `speaker.${ext}`);
-    form.append('speaker', 'system');
-    form.append('no_save', '1');
-    try {
-      const res = await fetch(`/api/session/${SESSION_ID}/transcribe/`, {
-        method: 'POST', headers: { 'X-CSRFToken': getCookie('csrftoken') }, body: form
-      });
-      const d = await res.json();
-      if (d.text && d.text.trim()) await _tvSaveEntry(d.text.trim(), speakerName);
-    } catch (_) {}
+  recorder.onerror = () => {
+    if (theirVoiceActive) setTimeout(_tvAudioLoop, 500);
   };
 
-  // If the audio track ends (e.g. Teams mutes/pauses) restart the recorder
-  // automatically — but only when the user hasn't manually stopped capture.
-  recorder.onstop = () => {
-    if (!theirVoiceActive) return; // user stopped — don't restart
-    const liveTracks = theirVoiceStream ? theirVoiceStream.getAudioTracks().filter(t => t.readyState === 'live') : [];
-    if (liveTracks.length) {
-      setTimeout(() => _startTVAudio(liveTracks), 500); // brief pause then restart
-    } else {
-      // Audio track gone entirely — fall back to captions
-      setStatus('📝 Audio track ended — switching to caption mode…');
-      _startTVCaptions();
+  recorder.onstop = async () => {
+    if (!theirVoiceActive) return;
+    const blob = new Blob(chunks, { type: _tvAudioMime });
+    if (blob.size >= 100) {
+      const ext = _tvAudioMime.includes('ogg') ? 'ogg' : 'webm';
+      const speakerName = _tvActiveSpeaker || 'Interviewer';
+      const form = new FormData();
+      form.append('audio', blob, `speaker.${ext}`);
+      form.append('speaker', 'system');
+      form.append('no_save', '1');
+      try {
+        const res = await fetch(`/api/session/${SESSION_ID}/transcribe/`, {
+          method: 'POST', headers: { 'X-CSRFToken': getCookie('csrftoken') }, body: form
+        });
+        const d = await res.json();
+        if (d.text && d.text.trim()) await _tvSaveEntry(d.text.trim(), speakerName);
+      } catch (_) {}
     }
+    // Start next cycle
+    if (theirVoiceActive) _tvAudioLoop();
   };
 
-  recorder.start(6000); // 6-second chunks for more frequent updates
+  recorder.start();
+  // Stop after 6 s to collect the chunk — guard against already-stopped recorder
+  _tvAudioLoopTimer = setTimeout(() => {
+    if (recorder.state === 'recording') recorder.stop();
+  }, 6000);
 }
 
 // ── Caption mode (no-audio fallback) ─────────────────────────────────────────
@@ -2944,6 +2965,7 @@ async function _captureFrame(heightFraction) {
 
 function stopTheirVoice() {
   theirVoiceActive = false;
+  if (_tvAudioLoopTimer) { clearTimeout(_tvAudioLoopTimer); _tvAudioLoopTimer = null; }
   if (_tvAudioRecorder && _tvAudioRecorder.state !== 'inactive') {
     try { _tvAudioRecorder.stop(); } catch (_) {}
   }
