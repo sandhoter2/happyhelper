@@ -2486,14 +2486,29 @@ let micLastCommitted = '';
 let micManualAccum = '';   // tracks committed finals in manual mode (not interim)
 let _tvInputLockUntil = 0; // mic interim won't overwrite question input while Their Voice holds it
 
-// Returns Their Voice chunk duration in ms, driven by the same setting as the mic mode badge.
-// 'manual' / 'dynamic' → 10 s; numeric (e.g. '30') → that many seconds, clamped 3–60 s.
-function _tvChunkMs() {
+// Audio capture is always real-time (~5 s chunks regardless of mic mode badge).
+const _TV_CHUNK_MS = 5000;
+
+// Returns the AI submission interval in ms, driven by the mic mode badge.
+// 'manual' → never auto-trigger (returns Infinity); 'dynamic' → 8 s;
+// numeric (e.g. '30') → that many seconds, clamped 5–120 s.
+function _tvAIIntervalMs() {
   const mode = (typeof transcribeMode !== 'undefined' ? transcribeMode : null)
                || localStorage.getItem('transcribeMode') || '30';
-  if (mode === 'manual' || mode === 'dynamic') return 10000;
+  if (mode === 'manual') return Infinity;
+  if (mode === 'dynamic') return 8000;
   const n = parseInt(mode, 10);
-  return isNaN(n) ? 10000 : Math.min(60, Math.max(3, n)) * 1000;
+  return isNaN(n) ? 30000 : Math.min(120, Math.max(5, n)) * 1000;
+}
+
+// Text accumulated across Their Voice chunks since last AI trigger
+let _tvAccumText = '';
+let _tvLastAIMs  = 0;  // Date.now() when AI was last triggered
+
+function _tvShouldTriggerAI() {
+  const interval = _tvAIIntervalMs();
+  if (interval === Infinity) return false;
+  return (Date.now() - _tvLastAIMs) >= interval;
 }
 
 function setMicInputText(text) {
@@ -2825,17 +2840,25 @@ async function startTheirVoice() {
 // transcribeMode (manual / auto / 5s / 30s). Never skips.
 async function _tvSaveEntry(text, speakerName) {
   if (!text || !theirVoiceActive) return;
-  // Update live transcript UI immediately
+  // Update live transcript UI immediately (every chunk)
   addTranscriptEntryUI(text, 'system', speakerName || 'Interviewer');
-  // Flow captured text into both question inputs so user can get AI help
-  // Lock mic interim/final from overwriting this for 10 s
+
+  // Accumulate text across chunks for AI context
+  _tvAccumText = _tvAccumText ? _tvAccumText + ' ' + text : text;
+
+  // Always show accumulated text in question input so user sees what's building up
   _tvInputLockUntil = Date.now() + 10000;
   const _qi = document.getElementById('questionInput');
-  if (_qi) { _qi.value = text; _qi.dispatchEvent(new Event('input')); }
-  setMicInputText(text);
-  if (typeof autoAI !== 'undefined' && autoAI && typeof triggerAI === 'function') {
-    triggerAI(text, true);
+  if (_qi) { _qi.value = _tvAccumText; _qi.dispatchEvent(new Event('input')); }
+  setMicInputText(_tvAccumText);
+
+  // Trigger AI only when the mic-mode-badge interval has elapsed
+  if (typeof autoAI !== 'undefined' && autoAI && typeof triggerAI === 'function' && _tvShouldTriggerAI()) {
+    triggerAI(_tvAccumText, true);
+    _tvLastAIMs  = Date.now();
+    _tvAccumText = '';  // reset accumulation after each AI submission
   }
+
   // Persist to DB — irrespective of any mic mode setting
   try {
     await fetch(`/api/session/${SESSION_ID}/transcript/`, {
@@ -2909,11 +2932,10 @@ function _tvAudioLoop() {
   };
 
   recorder.start();
-  // Stop after the configured interval (mirrors mic mode badge setting)
-  const _chunkMs = _tvChunkMs();
+  // Always capture in real-time short chunks; AI submission interval is separate
   _tvAudioLoopTimer = setTimeout(() => {
     if (recorder.state === 'recording') recorder.stop();
-  }, _chunkMs);
+  }, _TV_CHUNK_MS);
 }
 
 // ── Caption mode (no-audio fallback) ─────────────────────────────────────────
@@ -2986,6 +3008,7 @@ function stopTheirVoice() {
   if (btn) { btn.classList.remove('active'); btn.setAttribute('aria-pressed', 'false'); btn.title = 'Capture Teams voice (🔊)'; }
   setStatus('Speaker capture off');
   _tvActiveSpeaker = ''; _lastCaptionText = ''; _lastSeenCaption = '';
+  _tvAccumText = ''; _tvLastAIMs = 0;
 }
 
 async function sendAudioChunk(blob, mimeType, speaker = 'microphone') {
