@@ -1,7 +1,4 @@
-{% comment %}
-  HappyHelper design system — the single source of truth for tokens and shared components.
-  Every page includes this inside its <style> block. Change a colour here and it changes everywhere.
-{% endcomment %}
+/* HappyHelper design system: tokens, type, components. Shared by every page. */
 /* ── Tokens: dark (default) ─────────────────────────────────────────── */
 :root {
   color-scheme: dark;

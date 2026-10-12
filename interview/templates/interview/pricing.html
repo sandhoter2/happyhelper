@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -5,8 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Pricing — HappyHelper</title>
   {% include "interview/_head.html" %}
+  <link rel="stylesheet" href="{% static 'interview/css/hh.css' %}">
   <style>
-    {% include "interview/_styles.html" %}
 
     body { font-size: 16px; line-height: 1.6; overflow-x: hidden; }
     .page { padding: 64px 24px 0; max-width: 1180px; margin: 0 auto; }

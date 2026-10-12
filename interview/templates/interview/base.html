@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="en" data-theme="{% if request.user.is_authenticated %}{{ request.user.profile.theme|default:'dark' }}{% else %}dark{% endif %}">
 <head>
@@ -5,8 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}HappyHelper{% endblock %}</title>
   {% include "interview/_head.html" %}
+  <link rel="stylesheet" href="{% static 'interview/css/hh.css' %}">
   <style>
-    {% include "interview/_styles.html" %}
 
     /* ── App shell: top bar ──────────────────────────────────────── */
     .navbar {
@@ -98,6 +99,7 @@
 
     {% block extra_style %}{% endblock %}
   </style>
+  {% block extra_head %}{% endblock %}
 </head>
 <body>
   <a href="#main" class="skip-link">Skip to content</a>
