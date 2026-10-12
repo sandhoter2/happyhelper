@@ -2710,14 +2710,16 @@ function stopMic() {
 }
 
 
-// ── Their Voice: capture Teams / speaker audio via getDisplayMedia → Whisper ──
-// Web Speech API only uses the default mic — it cannot accept a custom stream.
-// Instead we use MediaRecorder on the captured audio and POST chunks to Whisper,
-// exactly the same pipeline the mic uses.
+// ── Their Voice: capture Teams captions via screen share + vision AI polling ──
+// Audio transcription of a captured tab/screen is unreliable (no mic access,
+// compressed codecs). Instead we keep the video stream, poll frames every 3s,
+// crop the caption strip at the bottom of the screen, and send to the vision AI
+// which reads whatever Teams Live Captions are showing. Much more reliable.
 let theirVoiceStream = null;
-let theirVoiceRecorder = null;
+let theirVoiceVideo = null;   // hidden <video> element driving frames
+let theirVoicePollTimer = null;
 let theirVoiceActive = false;
-const THEIR_VOICE_INTERVAL_MS = 8000; // send a chunk every 8 seconds
+let _lastCaptionText = '';    // deduplicate repeated captions
 
 async function toggleTheirVoice() {
   if (theirVoiceActive) {
@@ -2729,145 +2731,125 @@ async function toggleTheirVoice() {
 
 async function startTheirVoice() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-    toast('Tab/screen audio capture not supported in this browser. Use Chrome or Edge.', 'error', 6000);
+    toast('Screen capture not supported. Use Chrome or Edge.', 'error', 6000);
     return;
   }
 
-  toast('Pick the Teams tab or "Entire screen" — tick "Share tab audio" or "Share system audio".', 'info', 8000);
+  toast('Share the Teams tab (or Entire Screen). Enable Teams Live Captions in Teams first for best results.', 'info', 9000);
 
   try {
-    // Chrome/Edge require video:true — we discard the video track immediately
-    theirVoiceStream = await navigator.mediaDevices.getDisplayMedia({
-      video: true,
-      audio: { echoCancellation: false, noiseSuppression: false, sampleRate: 16000 }
-    });
-    theirVoiceStream.getVideoTracks().forEach(t => t.stop());
+    theirVoiceStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
   } catch (err) {
     if (err.name === 'NotAllowedError' || err.name === 'AbortError' || err.name === 'NotFoundError') {
       toast('Screen share cancelled.', 'info');
     } else {
-      toast('Could not capture speaker audio: ' + err.message, 'error', 7000);
+      toast('Screen share failed: ' + err.message, 'error', 7000);
     }
     return;
   }
 
-  if (!theirVoiceStream.getAudioTracks().length) {
-    theirVoiceStream.getTracks().forEach(t => t.stop());
-    theirVoiceStream = null;
-    toast('No audio track captured. Make sure "Share tab audio" or "Share system audio" is checked in the share dialog.', 'warn', 9000);
-    return;
-  }
-
-  // ── Auto-scan participants from the video frame before dropping video ─────
-  const videoTrack = theirVoiceStream.getVideoTracks()[0];
-  if (videoTrack) {
-    try {
-      let screenshotBlob;
-      if (typeof ImageCapture !== 'undefined') {
-        const ic = new ImageCapture(videoTrack);
-        const bitmap = await ic.grabFrame();
-        const canvas = document.createElement('canvas');
-        canvas.width = bitmap.width; canvas.height = bitmap.height;
-        canvas.getContext('2d').drawImage(bitmap, 0, 0);
-        screenshotBlob = await new Promise(res => canvas.toBlob(res, 'image/png'));
-      } else {
-        const vid = document.createElement('video');
-        vid.srcObject = new MediaStream([videoTrack]);
-        vid.muted = true;
-        await vid.play();
-        await new Promise(res => { vid.onloadeddata = res; setTimeout(res, 1500); });
-        const canvas = document.createElement('canvas');
-        canvas.width = vid.videoWidth || 1280; canvas.height = vid.videoHeight || 720;
-        canvas.getContext('2d').drawImage(vid, 0, 0);
-        vid.srcObject = null;
-        screenshotBlob = await new Promise(res => canvas.toBlob(res, 'image/png'));
-      }
-      if (screenshotBlob) {
-        const form = new FormData();
-        form.append('screenshot', screenshotBlob, 'screen.png');
-        fetch(`/api/session/${SESSION_ID}/scan-participants/`, {
-          method: 'POST',
-          headers: { 'X-CSRFToken': getCookie('csrftoken') },
-          body: form,
-        }).then(r => r.json()).then(async data => {
-          const allNames = [...new Set([...(data.names||[]), ...(data.speakers||[])])].filter(n => n && n.trim());
-          let added = 0;
-          for (const name of allNames) {
-            if (participants.find(p => p.name.toLowerCase() === name.toLowerCase())) continue;
-            const r2 = await fetch(`/api/session/${SESSION_ID}/participants/`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
-              body: JSON.stringify({ name: name.trim() }),
-            });
-            const d = await r2.json();
-            if (d.id) { participants.push({ id: d.id, name: d.name, role: d.role, color: d.color }); added++; }
-          }
-          if (added) { renderParticipants(); toast(`Found ${added} participant${added>1?'s':''} from your screen.`, 'success', 4000); }
-        }).catch(() => {});
-      }
-    } catch (_) {}
-    videoTrack.stop();
-  }
-
-  // ── Audio-only stream for MediaRecorder (avoids stopped-video-track issues) ─
-  const audioOnlyStream = new MediaStream(theirVoiceStream.getAudioTracks());
-
-  const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-    ? 'audio/webm;codecs=opus' : 'audio/webm';
-
-  try {
-    theirVoiceRecorder = new MediaRecorder(audioOnlyStream, { mimeType });
-  } catch (err) {
-    toast('MediaRecorder failed: ' + err.message, 'error', 6000);
-    theirVoiceStream.getTracks().forEach(t => t.stop());
-    theirVoiceStream = null;
-    return;
-  }
+  // Set up hidden video element to drive frame capture
+  theirVoiceVideo = document.createElement('video');
+  theirVoiceVideo.srcObject = theirVoiceStream;
+  theirVoiceVideo.muted = true;
+  theirVoiceVideo.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px';
+  document.body.appendChild(theirVoiceVideo);
+  await theirVoiceVideo.play();
+  // Wait for first frame
+  await new Promise(res => { theirVoiceVideo.onloadeddata = res; setTimeout(res, 2000); });
 
   theirVoiceActive = true;
+  _lastCaptionText = '';
   const btn = document.getElementById('theirVoiceBtn');
-  if (btn) { btn.classList.add('active'); btn.setAttribute('aria-pressed', 'true'); btn.title = 'Stop speaker capture (🔊)'; }
-  setStatus('Capturing speaker audio…');
-  toast('🔊 Speaker audio active — Teams voices will appear as "Interviewer" entries every ~8s.', 'success', 5000);
+  if (btn) { btn.classList.add('active'); btn.setAttribute('aria-pressed', 'true'); btn.title = 'Stop capturing Teams captions'; }
+  setStatus('Reading Teams captions…');
 
-  // If user stops the share from the browser toolbar, clean up
-  theirVoiceStream.getAudioTracks()[0].addEventListener('ended', () => stopTheirVoice());
-
-  theirVoiceRecorder.ondataavailable = async (e) => {
-    if (!e.data || e.data.size < 500 || !theirVoiceActive) return;
-    const blob = e.data;
-    const speakerName = (typeof getActiveSpeakerName === 'function' && getActiveSpeakerName()) || 'Interviewer';
-    const ext = mimeType.includes('ogg') ? 'ogg' : 'webm';
+  // ── Initial full-frame scan: detect participants ────────────────────────────
+  _captureFrame(1.0).then(async blob => {
+    if (!blob) return;
     const form = new FormData();
-    form.append('audio', blob, `speaker.${ext}`);
-    form.append('speaker', 'system');
-    form.append('speaker_name', speakerName);
+    form.append('screenshot', blob, 'screen.png');
     try {
-      const res = await fetch(`/api/session/${SESSION_ID}/transcribe/`, {
-        method: 'POST',
-        headers: { 'X-CSRFToken': getCookie('csrftoken') },
-        body: form,
+      const r = await fetch(`/api/session/${SESSION_ID}/scan-participants/`, {
+        method: 'POST', headers: { 'X-CSRFToken': getCookie('csrftoken') }, body: form
+      });
+      const data = await r.json();
+      const allNames = [...new Set([...(data.names||[]), ...(data.speakers||[])])].filter(n => n && n.trim());
+      let added = 0;
+      for (const name of allNames) {
+        if (typeof participants !== 'undefined' && participants.find(p => p.name.toLowerCase() === name.toLowerCase())) continue;
+        const r2 = await fetch(`/api/session/${SESSION_ID}/participants/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+          body: JSON.stringify({ name: name.trim() }),
+        });
+        const d = await r2.json();
+        if (d.id && typeof participants !== 'undefined') { participants.push({ id: d.id, name: d.name, role: d.role, color: d.color }); added++; }
+      }
+      if (added && typeof renderParticipants === 'function') { renderParticipants(); toast(`Found ${added} participant${added>1?'s':''} from your screen.`, 'success', 4000); }
+    } catch (_) {}
+  });
+
+  toast('🔊 Reading Teams captions live — make sure Teams Live Captions are turned on (... → Language → Turn on live captions).', 'success', 7000);
+
+  // Stop cleanly if user ends share from browser toolbar
+  theirVoiceStream.getVideoTracks()[0].addEventListener('ended', () => stopTheirVoice());
+
+  // ── Poll caption strip every 3 seconds ─────────────────────────────────────
+  theirVoicePollTimer = setInterval(async () => {
+    if (!theirVoiceActive) return;
+    // Crop bottom 20% — that's where Teams live captions appear
+    const blob = await _captureFrame(0.20);
+    if (!blob) return;
+    const form = new FormData();
+    form.append('frame', blob, 'caption.jpg');
+    try {
+      const res = await fetch(`/api/session/${SESSION_ID}/extract-captions/`, {
+        method: 'POST', headers: { 'X-CSRFToken': getCookie('csrftoken') }, body: form
       });
       const data = await res.json();
-      if (data.text && data.text.trim()) {
-        addTranscriptEntryUI(data.text.trim(), 'system', speakerName);
+      if (!data.text || !data.text.trim()) return;
+      const text = data.text.trim();
+      // Skip if same as last caption (Teams repeats the current caption on every frame)
+      if (text === _lastCaptionText) return;
+      // Skip if it's just a small extension of the last (Teams updates incrementally)
+      if (_lastCaptionText && text.startsWith(_lastCaptionText.slice(0, 30))) {
+        _lastCaptionText = text; // update but don't add yet — wait for it to change
+        return;
       }
+      _lastCaptionText = text;
+      const speakerName = data.speaker || (typeof getActiveSpeakerName === 'function' && getActiveSpeakerName()) || 'Interviewer';
+      addTranscriptEntryUI(text, 'system', speakerName);
     } catch (_) {}
-  };
+  }, 3000);
+}
 
-  theirVoiceRecorder.start(THEIR_VOICE_INTERVAL_MS);
+// Capture a frame from the hidden video element as a JPEG blob.
+// heightFraction = 1.0 → full frame; 0.20 → bottom 20% only
+async function _captureFrame(heightFraction) {
+  if (!theirVoiceVideo || !theirVoiceActive) return null;
+  const vw = theirVoiceVideo.videoWidth || 1280;
+  const vh = theirVoiceVideo.videoHeight || 720;
+  const cropH = Math.round(vh * heightFraction);
+  const cropY = heightFraction < 1.0 ? vh - cropH : 0;
+  const canvas = document.createElement('canvas');
+  canvas.width = vw;
+  canvas.height = cropH;
+  try {
+    canvas.getContext('2d').drawImage(theirVoiceVideo, 0, cropY, vw, cropH, 0, 0, vw, cropH);
+    return await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.85));
+  } catch (_) { return null; }
 }
 
 function stopTheirVoice() {
   theirVoiceActive = false;
-  if (theirVoiceRecorder && theirVoiceRecorder.state !== 'inactive') {
-    try { theirVoiceRecorder.stop(); } catch (_) {}
-  }
-  theirVoiceRecorder = null;
+  if (theirVoicePollTimer) { clearInterval(theirVoicePollTimer); theirVoicePollTimer = null; }
+  if (theirVoiceVideo) { theirVoiceVideo.srcObject = null; theirVoiceVideo.remove(); theirVoiceVideo = null; }
   if (theirVoiceStream) { theirVoiceStream.getTracks().forEach(t => t.stop()); theirVoiceStream = null; }
   const btn = document.getElementById('theirVoiceBtn');
-  if (btn) { btn.classList.remove('active'); btn.setAttribute('aria-pressed', 'false'); btn.title = 'Capture Teams / speaker audio'; }
-  setStatus('Speaker capture off');
+  if (btn) { btn.classList.remove('active'); btn.setAttribute('aria-pressed', 'false'); btn.title = 'Capture Teams captions (🔊)'; }
+  setStatus('Caption capture off');
+  _lastCaptionText = '';
 }
 
 async function sendAudioChunk(blob, mimeType, speaker = 'microphone') {
@@ -4847,7 +4829,7 @@ async function popOutAI() {
 // Keyboard shortcuts
 document.addEventListener('keydown', e => {
   const tag = document.activeElement.tagName;
-  const typing = ['INPUT','TEXTAREA'].includes(tag);
+  const typing = ['INPUT','TEXTAREA','SELECT'].includes(tag) || document.activeElement.isContentEditable;
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); if (!isStreaming) triggerAI(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === 'f') { e.preventDefault(); toggleTranscriptSearch(); return; }
   if (typing) return;
