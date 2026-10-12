@@ -156,6 +156,9 @@ LLAMAPARSE_WEBHOOK_SECRET = os.environ.get("LLAMAPARSE_WEBHOOK_SECRET", "")
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
 
+# Allow screenshot uploads up to 10 MB (default 2.5 MB was too small for full-res screen captures)
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
+
 # Git commit hash for version tracking in admin portal
 def _git_commit():
     # Render sets this env var automatically on every deploy
