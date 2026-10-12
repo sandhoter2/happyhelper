@@ -2829,6 +2829,11 @@ async function _tvSaveEntry(text, speakerName) {
   if (!text || !theirVoiceActive) return;
   // Update live transcript UI immediately
   addTranscriptEntryUI(text, 'system', speakerName || 'Interviewer');
+  // Flow captured text into the question input so user can get AI help
+  setMicInputText(text);
+  if (typeof autoAI !== 'undefined' && autoAI && typeof triggerAI === 'function') {
+    triggerAI(text, true);
+  }
   // Persist to DB — irrespective of any mic mode setting
   try {
     await fetch(`/api/session/${SESSION_ID}/transcript/`, {
