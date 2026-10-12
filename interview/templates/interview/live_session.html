@@ -2486,6 +2486,16 @@ let micLastCommitted = '';
 let micManualAccum = '';   // tracks committed finals in manual mode (not interim)
 let _tvInputLockUntil = 0; // mic interim won't overwrite question input while Their Voice holds it
 
+// Returns Their Voice chunk duration in ms, driven by the same setting as the mic mode badge.
+// 'manual' / 'dynamic' → 10 s; numeric (e.g. '30') → that many seconds, clamped 3–60 s.
+function _tvChunkMs() {
+  const mode = (typeof transcribeMode !== 'undefined' ? transcribeMode : null)
+               || localStorage.getItem('transcribeMode') || '30';
+  if (mode === 'manual' || mode === 'dynamic') return 10000;
+  const n = parseInt(mode, 10);
+  return isNaN(n) ? 10000 : Math.min(60, Math.max(3, n)) * 1000;
+}
+
 function setMicInputText(text) {
   const qi = document.getElementById('questionInput');
   const fi = (typeof _doc === 'function') ? _doc().getElementById('fQuestionInput') : null;
@@ -2802,7 +2812,7 @@ async function startTheirVoice() {
   // ── Choose mode based on whether audio was shared ───────────────────────────
   const audioTracks = theirVoiceStream.getAudioTracks().filter(t => t.readyState === 'live');
   if (audioTracks.length) {
-    toast('🎙 Audio capture active — words appear every ~6 s, speaker refreshes every 15 s.', 'success', 6000);
+    toast(`🎤 Audio capture active — words appear every ~${Math.round(_tvChunkMs()/1000)} s (matches your mic mode setting).`, 'success', 6000);
     _startTVAudio(audioTracks);
   } else {
     toast('No audio shared — caption mode active. Turn on Teams Live Captions (... → Language) for best results.', 'warn', 9000);
@@ -2897,10 +2907,11 @@ function _tvAudioLoop() {
   };
 
   recorder.start();
-  // Stop after 6 s to collect the chunk — guard against already-stopped recorder
+  // Stop after the configured interval (mirrors mic mode badge setting)
+  const _chunkMs = _tvChunkMs();
   _tvAudioLoopTimer = setTimeout(() => {
     if (recorder.state === 'recording') recorder.stop();
-  }, 6000);
+  }, _chunkMs);
 }
 
 // ── Caption mode (no-audio fallback) ─────────────────────────────────────────
