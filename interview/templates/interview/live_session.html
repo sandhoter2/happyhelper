@@ -2812,11 +2812,12 @@ async function startTheirVoice() {
   _tvScanTimer = setInterval(_runScan, 15000);
 
   // ── Choose mode based on whether audio was shared ───────────────────────────
-  const audioTracks = theirVoiceStream.getAudioTracks();
+  const audioTracks = theirVoiceStream.getAudioTracks().filter(t => t.readyState === 'live');
   if (audioTracks.length) {
+    toast('🎙 Audio capture active — words appear every ~6 s, speaker refreshes every 15 s.', 'success', 6000);
     _startTVAudio(audioTracks);
   } else {
-    toast('No audio track — starting caption mode. Turn on Teams Live Captions for best results.', 'warn', 8000);
+    toast('No audio shared — caption mode active. Turn on Teams Live Captions (... → Language) for best results.', 'warn', 9000);
     _startTVCaptions();
   }
 }
@@ -2840,24 +2841,26 @@ async function _tvSaveEntry(text, speakerName) {
 
 // ── Audio mode (primary) ──────────────────────────────────────────────────────
 function _startTVAudio(audioTracks) {
+  if (!theirVoiceActive || !audioTracks.length) return;
   const audioStream = new MediaStream(audioTracks);
   _tvAudioMime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
-  try { _tvAudioRecorder = new MediaRecorder(audioStream, { mimeType: _tvAudioMime }); }
+  let recorder;
+  try { recorder = new MediaRecorder(audioStream, { mimeType: _tvAudioMime }); }
   catch (e) {
     toast('MediaRecorder failed — falling back to caption mode.', 'warn', 5000);
     _startTVCaptions(); return;
   }
+  _tvAudioRecorder = recorder;
   setStatus('🎙 Capturing Teams audio…');
-  toast('🎙 Audio capture active — words appear every ~8 s. Speaker updated every 15 s.', 'success', 6000);
 
-  _tvAudioRecorder.ondataavailable = async (e) => {
-    if (!e.data || e.data.size < 500 || !theirVoiceActive) return;
+  recorder.ondataavailable = async (e) => {
+    if (!e.data || e.data.size < 100 || !theirVoiceActive) return;
     const ext = _tvAudioMime.includes('ogg') ? 'ogg' : 'webm';
     const speakerName = _tvActiveSpeaker || 'Interviewer';
     const form = new FormData();
     form.append('audio', e.data, `speaker.${ext}`);
     form.append('speaker', 'system');
-    form.append('no_save', '1');   // _tvSaveEntry handles the DB save below
+    form.append('no_save', '1');
     try {
       const res = await fetch(`/api/session/${SESSION_ID}/transcribe/`, {
         method: 'POST', headers: { 'X-CSRFToken': getCookie('csrftoken') }, body: form
@@ -2866,11 +2869,30 @@ function _startTVAudio(audioTracks) {
       if (d.text && d.text.trim()) await _tvSaveEntry(d.text.trim(), speakerName);
     } catch (_) {}
   };
-  _tvAudioRecorder.start(8000);
+
+  // If the audio track ends (e.g. Teams mutes/pauses) restart the recorder
+  // automatically — but only when the user hasn't manually stopped capture.
+  recorder.onstop = () => {
+    if (!theirVoiceActive) return; // user stopped — don't restart
+    const liveTracks = theirVoiceStream ? theirVoiceStream.getAudioTracks().filter(t => t.readyState === 'live') : [];
+    if (liveTracks.length) {
+      setTimeout(() => _startTVAudio(liveTracks), 500); // brief pause then restart
+    } else {
+      // Audio track gone entirely — fall back to captions
+      setStatus('📝 Audio track ended — switching to caption mode…');
+      _startTVCaptions();
+    }
+  };
+
+  recorder.start(6000); // 6-second chunks for more frequent updates
 }
 
 // ── Caption mode (no-audio fallback) ─────────────────────────────────────────
+// _lastCaptionText  = last text that was actually SAVED (for dedup)
+// _lastSeenCaption  = latest text seen this poll (may be mid-sentence)
+let _lastSeenCaption = '';
 function _startTVCaptions() {
+  if (_tvCaptionTimer) return; // already running
   setStatus('📝 Reading Teams captions…');
   _tvCaptionTimer = setInterval(async () => {
     if (!theirVoiceActive) return;
@@ -2884,15 +2906,24 @@ function _startTVCaptions() {
       });
       const data = await res.json();
       const text = (data.text || '').trim();
-      if (!text || text === _lastCaptionText) return;
-      if (_lastCaptionText && text.startsWith(_lastCaptionText.slice(0, 40))) {
-        _lastCaptionText = text; return; // caption still updating — wait for change
+      if (!text) return;
+      _lastSeenCaption = text;
+      // Skip exact duplicate
+      if (text === _lastCaptionText) return;
+      // New sentence / speaker → save immediately
+      const isContinuation = _lastCaptionText && text.startsWith(_lastCaptionText.slice(0, 30));
+      if (!isContinuation) {
+        _lastCaptionText = text;
+        await _tvSaveEntry(text, data.speaker || _tvActiveSpeaker || 'Interviewer');
+        return;
       }
-      _lastCaptionText = text;
-      const speakerName = data.speaker || _tvActiveSpeaker || 'Interviewer';
-      await _tvSaveEntry(text, speakerName); // saves to DB + UI
+      // Same sentence still growing: save only once it has grown by ≥ 35 chars
+      if (text.length - _lastCaptionText.length >= 35) {
+        _lastCaptionText = text;
+        await _tvSaveEntry(text, data.speaker || _tvActiveSpeaker || 'Interviewer');
+      }
     } catch (_) {}
-  }, 5000);
+  }, 4000);
 }
 
 // Capture a frame from the hidden video element as a JPEG blob.
@@ -2924,7 +2955,7 @@ function stopTheirVoice() {
   const btn = document.getElementById('theirVoiceBtn');
   if (btn) { btn.classList.remove('active'); btn.setAttribute('aria-pressed', 'false'); btn.title = 'Capture Teams voice (🔊)'; }
   setStatus('Speaker capture off');
-  _tvActiveSpeaker = ''; _lastCaptionText = '';
+  _tvActiveSpeaker = ''; _lastCaptionText = ''; _lastSeenCaption = '';
 }
 
 async function sendAudioChunk(blob, mimeType, speaker = 'microphone') {
