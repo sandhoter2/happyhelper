@@ -2710,10 +2710,14 @@ function stopMic() {
 }
 
 
-// ── Their Voice: capture Teams / speaker audio via getDisplayMedia ────────────
+// ── Their Voice: capture Teams / speaker audio via getDisplayMedia → Whisper ──
+// Web Speech API only uses the default mic — it cannot accept a custom stream.
+// Instead we use MediaRecorder on the captured audio and POST chunks to Whisper,
+// exactly the same pipeline the mic uses.
 let theirVoiceStream = null;
-let theirVoiceRecognition = null;
+let theirVoiceRecorder = null;
 let theirVoiceActive = false;
+const THEIR_VOICE_INTERVAL_MS = 8000; // send a chunk every 8 seconds
 
 async function toggleTheirVoice() {
   if (theirVoiceActive) {
@@ -2724,119 +2728,92 @@ async function toggleTheirVoice() {
 }
 
 async function startTheirVoice() {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    toast('Speech recognition not supported. Use Chrome or Edge.', 'error', 6000);
-    return;
-  }
   if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-    toast('Tab/screen audio capture not supported in this browser.', 'error', 6000);
+    toast('Tab/screen audio capture not supported in this browser. Use Chrome or Edge.', 'error', 6000);
     return;
   }
 
-  toast('Select the Teams tab (or "Entire screen") — make sure "Share audio" is checked.', 'info', 7000);
+  toast('Pick the Teams tab or "Entire screen" — tick "Share tab audio" or "Share system audio".', 'info', 8000);
 
   try {
-    // video:true is required by Chrome/Edge — we stop the video track immediately after
+    // Chrome/Edge require video:true — we discard the video track immediately
     theirVoiceStream = await navigator.mediaDevices.getDisplayMedia({
       video: true,
-      audio: {
-        echoCancellation: false,
-        noiseSuppression: false,
-        sampleRate: 16000,
-      }
+      audio: { echoCancellation: false, noiseSuppression: false, sampleRate: 16000 }
     });
-    // Drop video — we only need the audio track
     theirVoiceStream.getVideoTracks().forEach(t => t.stop());
   } catch (err) {
-    if (err.name === 'NotAllowedError' || err.name === 'AbortError') {
-      toast('Screen audio share cancelled.', 'info');
+    if (err.name === 'NotAllowedError' || err.name === 'AbortError' || err.name === 'NotFoundError') {
+      toast('Screen share cancelled.', 'info');
     } else {
       toast('Could not capture speaker audio: ' + err.message, 'error', 7000);
     }
     return;
   }
 
-  const audioTracks = theirVoiceStream.getAudioTracks();
-  if (!audioTracks.length) {
+  if (!theirVoiceStream.getAudioTracks().length) {
     theirVoiceStream.getTracks().forEach(t => t.stop());
     theirVoiceStream = null;
-    toast('No audio track found. Make sure "Share audio" (or "Share tab audio") is checked in the share dialog.', 'warn', 8000);
+    toast('No audio track captured. Make sure "Share tab audio" or "Share system audio" is checked in the share dialog.', 'warn', 9000);
+    return;
+  }
+
+  const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+    ? 'audio/webm;codecs=opus' : 'audio/webm';
+
+  try {
+    theirVoiceRecorder = new MediaRecorder(theirVoiceStream, { mimeType });
+  } catch (err) {
+    toast('MediaRecorder failed: ' + err.message, 'error', 6000);
+    theirVoiceStream.getTracks().forEach(t => t.stop());
+    theirVoiceStream = null;
     return;
   }
 
   theirVoiceActive = true;
   const btn = document.getElementById('theirVoiceBtn');
-  if (btn) { btn.classList.add('active'); btn.setAttribute('aria-pressed', 'true'); btn.title = 'Stop their voice capture'; }
+  if (btn) { btn.classList.add('active'); btn.setAttribute('aria-pressed', 'true'); btn.title = 'Stop speaker capture (🔊)'; }
   setStatus('Capturing speaker audio…');
-  toast('Capturing Teams audio. Speak normally in Teams — their voice will appear in the transcript.', 'success', 5000);
+  toast('🔊 Speaker audio capture active — their voice will appear as "Interviewer" entries.', 'success', 4000);
 
-  // Stop cleanly if the user ends the share from the browser toolbar
+  // If user stops the share from the browser toolbar, clean up
   theirVoiceStream.getAudioTracks()[0].addEventListener('ended', () => stopTheirVoice());
 
-  // Feed stream through Web Audio → a new MediaStream for SpeechRecognition
-  let srStream;
-  try {
-    const ctx = new AudioContext();
-    const src = ctx.createMediaStreamSource(theirVoiceStream);
-    const dest = ctx.createMediaStreamDestination();
-    src.connect(dest);
-    srStream = dest.stream;
-  } catch (_) {
-    srStream = theirVoiceStream; // fallback: use the stream directly
-  }
-
-  theirVoiceRecognition = new SpeechRecognition();
-  theirVoiceRecognition.continuous = true;
-  theirVoiceRecognition.interimResults = false;
-  theirVoiceRecognition.lang = 'en-US';
-
-  theirVoiceRecognition.onresult = (event) => {
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      if (!event.results[i].isFinal) continue;
-      const text = event.results[i][0].transcript.trim();
-      if (!text) continue;
-      const speakerName = (typeof getActiveSpeakerName === 'function' && getActiveSpeakerName()) || 'Interviewer';
-      saveSpeakerToServer(text, speakerName);
-      addTranscriptEntryUI(text, 'system', speakerName);
-    }
+  theirVoiceRecorder.ondataavailable = async (e) => {
+    if (!e.data || e.data.size < 500 || !theirVoiceActive) return;
+    const blob = e.data;
+    const speakerName = (typeof getActiveSpeakerName === 'function' && getActiveSpeakerName()) || 'Interviewer';
+    const ext = mimeType.includes('ogg') ? 'ogg' : 'webm';
+    const form = new FormData();
+    form.append('audio', blob, `speaker.${ext}`);
+    form.append('speaker', 'system');
+    form.append('speaker_name', speakerName);
+    try {
+      const res = await fetch(`/api/session/${SESSION_ID}/transcribe/`, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': getCookie('csrftoken') },
+        body: form,
+      });
+      const data = await res.json();
+      if (data.text && data.text.trim()) {
+        addTranscriptEntryUI(data.text.trim(), 'system', speakerName);
+      }
+    } catch (_) {}
   };
 
-  theirVoiceRecognition.onerror = (e) => {
-    if (e.error === 'no-speech') return;
-    if (e.error === 'not-allowed') { toast('Microphone permission denied for speaker capture.', 'error', 6000); stopTheirVoice(); return; }
-    console.warn('theirVoiceRecognition error:', e.error);
-  };
-
-  theirVoiceRecognition.onend = () => {
-    if (theirVoiceActive) {
-      try { theirVoiceRecognition.start(); } catch (_) {}
-    }
-  };
-
-  try {
-    theirVoiceRecognition.start();
-  } catch (err) {
-    toast('Could not start speech recognition for speaker audio: ' + err.message, 'error', 6000);
-    stopTheirVoice();
-  }
+  theirVoiceRecorder.start(THEIR_VOICE_INTERVAL_MS);
 }
 
 function stopTheirVoice() {
   theirVoiceActive = false;
-  if (theirVoiceRecognition) { theirVoiceRecognition.onend = null; try { theirVoiceRecognition.stop(); } catch (_) {} theirVoiceRecognition = null; }
+  if (theirVoiceRecorder && theirVoiceRecorder.state !== 'inactive') {
+    try { theirVoiceRecorder.stop(); } catch (_) {}
+  }
+  theirVoiceRecorder = null;
   if (theirVoiceStream) { theirVoiceStream.getTracks().forEach(t => t.stop()); theirVoiceStream = null; }
   const btn = document.getElementById('theirVoiceBtn');
   if (btn) { btn.classList.remove('active'); btn.setAttribute('aria-pressed', 'false'); btn.title = 'Capture Teams / speaker audio'; }
   setStatus('Speaker capture off');
-}
-
-function saveSpeakerToServer(text, speakerName) {
-  fetch(`/api/session/${SESSION_ID}/transcript/`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
-    body: JSON.stringify({ transcripts: [{ content: text, type: 'system', speaker_name: speakerName }] })
-  }).catch(() => {});
 }
 
 async function sendAudioChunk(blob, mimeType, speaker = 'microphone') {
