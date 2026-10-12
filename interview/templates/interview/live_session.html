@@ -1184,19 +1184,59 @@ kbd { font-size: 12px; background: var(--bg3); border: 1px solid var(--border2);
   /* Shortcuts and focus mode are keyboard features; leave them out on a phone */
   #focusModeBtn, .session-controls [aria-label="Keyboard shortcuts"] { display: none; }
 
-  /* Bottom bar: tools on the first row, the question and the answer button on the second */
-  .bottom-bar { grid-template-columns: 44px auto auto auto 1fr auto; gap: 8px; padding: 8px 12px; }
-  .bottom-bar > .mic-btn { grid-column: 1; grid-row: 1; width: 44px !important; height: 44px !important; }
-  .bottom-bar > #micModeBadge { grid-column: 2; grid-row: 1; }
-  .bottom-bar > #convInsightWrap { grid-column: 3; grid-row: 1; }
-  .bottom-bar > #mhWrap { grid-column: 4; grid-row: 1; }
-  .bottom-bar > .waveform-wrap { grid-column: 5 / 7; grid-row: 1; }
-  .bottom-bar > .question-input-wrap { grid-column: 1 / 6; grid-row: 2; }
-  .bottom-bar > .ai-btn-group { grid-column: 6; grid-row: 2; }
+  /* Session bar: every control stays, labels give way to icons */
+  .session-bar { gap: 8px; }
+  .session-controls > button:first-child { display: inline-flex !important; }
+  .session-controls .btn-label { display: none; }
+  .session-controls .btn-sm { padding-left: 9px; padding-right: 9px; min-width: 34px; justify-content: center; }
+  .session-controls .btn-danger .btn-label { display: inline; }
+
+  /* Panel names are already on the tabs above, so the transcript gets the row back */
+  .panel > .panel-header > .panel-title { display: none; }
+  .panel > .panel-header { padding-top: 6px; padding-bottom: 6px; }
+
+  /* Bottom bar: tools wrap on the first row, the question and the answer button share the second.
+     Flex, not fixed grid columns, so a new tool button can never push the answer button off the screen. */
+  body .bottom-bar { display: flex !important; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 12px; }
+  .bottom-bar::after { content: ''; flex-basis: 100%; height: 0; order: 9; }
+  .bottom-bar > .mic-btn { width: 44px !important; height: 44px !important; }
+  .bottom-bar > .waveform-wrap { flex: 1 1 0; min-width: 0; }
+  .bottom-bar > .question-input-wrap { order: 10 !important; flex: 1 1 0 !important; min-width: 0; width: auto !important; }
+  .bottom-bar > .ai-btn-group { display: contents !important; }
+  .ai-btn-group > .ai-split-wrap { order: 11; flex: 0 0 auto; margin-left: auto; }
+  /* Clear and Save sit at the end of the tools row */
+  .ai-btn-group > div:not(.ai-split-wrap) { display: flex !important; order: 8; margin-left: auto; gap: 4px; }
+  .ai-btn-group > div:not(.ai-split-wrap) .ai-help-btn { min-height: 32px; padding: 4px 9px !important; border-radius: 8px !important; }
   #aiHelpBtn { padding: 10px 14px !important; font-size: 14px !important; }
+
+  /* Menus that open from the bottom bar become sheets across the screen */
+  #docAttachPanel, #aiTplDropdown { position: fixed !important; left: 12px !important; right: 12px !important; bottom: 132px !important; top: auto !important; min-width: 0 !important; max-width: none !important; width: auto !important; }
+  #aiTplDropdown { max-height: 52dvh; }
+
+  /* Code helper: header wraps, panel scrolls inside itself */
+  #codeEditorPanel { max-height: 56dvh; overflow-y: auto; padding: 10px 12px !important; }
+  .code-helper-head { flex-wrap: wrap; }
+  .code-helper-head #codeProblemInput { order: 5; flex: 1 1 100% !important; }
+  .code-helper-close { margin-left: auto; }
+  #codeInput { min-height: 120px; }
 
   /* Meeting panel: scroll inside itself, never over the bars below */
   #teamsRecorderPanel.panel-open #recorderPanelBody { max-height: 204px; overflow-y: auto; }
+  #teamsRecorderPanel.panel-open { max-height: 34dvh; }
+}
+@media (max-width: 400px) {
+  .session-controls .btn-danger .btn-label { display: none; }
+  .bottom-bar > .mic-btn { width: 40px !important; height: 40px !important; }
+  .ai-btn-group > div:not(.ai-split-wrap) .ai-help-btn { padding: 4px 7px !important; }
+}
+@media (max-width: 340px) {
+  .session-info h1 { min-width: 36px; }
+  .session-bar { padding-left: 10px; padding-right: 10px; gap: 6px; }
+  body .bottom-bar { padding: 8px 10px; gap: 4px; }
+  .bottom-bar > .mic-btn { width: 36px !important; height: 36px !important; }
+  #docAttachBtn { width: 32px !important; height: 32px !important; }
+  .ai-btn-group > div:not(.ai-split-wrap) { gap: 3px; }
+  .ai-btn-group > div:not(.ai-split-wrap) .ai-help-btn { padding: 4px 5px !important; }
 }
 
 /* Between phone and desktop: drop the read-outs first, then let toolbars wrap */
@@ -1320,6 +1360,22 @@ body.tc-select-mode .transcript-entry.selected::before, .transcript-entry.select
 .note-input:focus { border-color: var(--accent); }
 .ai-tpl-item.active { background: rgb(var(--accent-rgb) / 0.13); }
 
+/* Code helper and the documents menu */
+.code-helper-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.code-helper-title { font-family: var(--display); font-size: 14px; font-weight: 700; color: var(--text); white-space: nowrap; }
+.code-helper-close { width: 32px; height: 32px; padding: 0; justify-content: center; }
+#codeEditorPanel .btn-sm { font-size: 13px; }
+#codeEditorBtn.active { background: var(--bg4); border-color: var(--border3); color: var(--text); }
+.session-controls #codeEditorBtn .ic, .session-controls #mockQBtn .ic { width: 16px; height: 16px; }
+#docAttachBtn .ic { width: 17px; height: 17px; }
+#docAttachPanel { border-radius: 12px !important; }
+.doc-attach-row { min-height: 40px; }
+.doc-attach-row input { width: 18px; height: 18px; flex-shrink: 0; accent-color: var(--accent); }
+.doc-attach-row span, .doc-attach-row div { min-width: 0; overflow-wrap: anywhere; }
+.doc-attach-upload { display: block; padding: 8px; border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--accent); }
+.doc-attach-upload:hover { background: var(--bg3); }
+.transcript-entry:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 /* Phone: the helper opens as a sheet across the screen, and the active tab uses the theme accent */
 @media (max-width: 640px) {
   .meeting-helper-panel { position: fixed; left: 12px !important; right: 12px; bottom: 150px; min-width: 0; max-width: none; }
@@ -1359,9 +1415,9 @@ body.tc-select-mode .transcript-entry.selected::before, .transcript-entry.select
   <div class="session-controls">
     <button class="btn btn-ghost btn-sm" onclick="toggleQuickQ()" id="quickQBtn" title="Quick questions" aria-label="Quick questions">{% include "interview/_icon.html" with name="zap" %} <span class="btn-label">Quick questions</span></button>
     {% if session.session_type == 'mock_interview' %}
-    <button class="btn btn-ghost btn-sm" onclick="getNextMockQuestion()" id="mockQBtn" title="Ask the next interview question" style="background:rgba(108,99,255,0.12);border-color:#6c63ff;color:#a78bfa">🎓 Next Q</button>
+    <button class="btn btn-ghost btn-sm" onclick="getNextMockQuestion()" id="mockQBtn" title="Ask the next interview question" aria-label="Next question">{% include "interview/_icon.html" with name="forward" %} <span class="btn-label">Next question</span></button>
     {% endif %}
-    <button class="btn btn-ghost btn-sm" onclick="toggleCodeEditor()" id="codeEditorBtn" title="Toggle coding helper">💻 Code</button>
+    <button class="btn btn-ghost btn-sm" onclick="toggleCodeEditor()" id="codeEditorBtn" title="Code helper" aria-label="Code helper">{% include "interview/_icon.html" with name="code" %} <span class="btn-label">Code</span></button>
     <button class="btn btn-ghost btn-sm" onclick="toggleFocusMode()" id="focusModeBtn" title="Focus mode (F)" aria-label="Focus mode">{% include "interview/_icon.html" with name="focus" %}</button>
     <button class="btn btn-ghost btn-sm" onclick="openModal('shortcutsModal')" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">{% include "interview/_icon.html" with name="keyboard" %}</button>
     {% if session.session_type != 'meeting' %}
@@ -1370,7 +1426,7 @@ body.tc-select-mode .transcript-entry.selected::before, .transcript-entry.select
     </label>
     {% endif %}
     <button class="btn btn-ghost btn-sm" id="showAiBtn" onclick="restoreAIPanel()" style="display:none" title="Show the suggested answer panel">Show answer</button>
-    <button class="btn btn-danger btn-sm" onclick="endSession()">End session</button>
+    <button class="btn btn-danger btn-sm" onclick="endSession()" aria-label="End session">End<span class="btn-label">session</span></button>
   </div>
 </div>
 
@@ -1709,9 +1765,9 @@ body.tc-select-mode .transcript-entry.selected::before, .transcript-entry.select
 
 <!-- Code Editor Panel -->
 <div id="codeEditorPanel" style="display:none;border-top:1px solid var(--border);background:var(--bg);padding:12px 16px">
-  <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-    <span style="font-size:11px;font-family:var(--mono);color:var(--accent);font-weight:700">// CODE HELPER</span>
-    <select id="codeLangSelect" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:3px 8px;font-family:var(--mono)">
+  <div class="code-helper-head">
+    <span class="code-helper-title">Code helper</span>
+    <select id="codeLangSelect" aria-label="Language" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:3px 8px;font-family:var(--mono)">
       <option value="python">Python</option>
       <option value="javascript">JavaScript</option>
       <option value="java">Java</option>
@@ -1721,15 +1777,15 @@ body.tc-select-mode .transcript-entry.selected::before, .transcript-entry.select
       <option value="sql">SQL</option>
       <option value="other">Other</option>
     </select>
-    <input id="codeProblemInput" type="text" placeholder="Problem context (optional)…" style="flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:4px 10px" />
-    <button onclick="toggleCodeEditor()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:16px;line-height:1;padding:0 4px" title="Close">✕</button>
+    <input id="codeProblemInput" type="text" aria-label="Problem context (optional)" placeholder="Problem context (optional)…" style="flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:4px 10px" />
+    <button class="btn btn-ghost btn-xs code-helper-close" onclick="toggleCodeEditor()" title="Close the code helper" aria-label="Close the code helper">{% include "interview/_icon.html" with name="x" %}</button>
   </div>
-  <textarea id="codeInput" rows="8" placeholder="Paste your code here…" style="width:100%;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:var(--mono);font-size:13px;padding:10px;resize:vertical;box-sizing:border-box;line-height:1.5"></textarea>
+  <textarea id="codeInput" rows="8" aria-label="Your code" placeholder="Paste your code here…" style="width:100%;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:var(--mono);font-size:13px;padding:10px;resize:vertical;box-sizing:border-box;line-height:1.5"></textarea>
   <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
-    <button class="btn btn-ghost btn-sm" onclick="runCodeHelp('explain')" style="font-size:12px">🔍 Explain</button>
-    <button class="btn btn-ghost btn-sm" onclick="runCodeHelp('review')" style="font-size:12px">🔎 Review</button>
-    <button class="btn btn-ghost btn-sm" onclick="runCodeHelp('optimize')" style="font-size:12px">⚡ Optimize</button>
-    <button class="btn btn-ghost btn-sm" onclick="runCodeHelp('hint')" style="font-size:12px">💡 Hint</button>
+    <button class="btn btn-ghost btn-sm" onclick="runCodeHelp('explain')" >Explain</button>
+    <button class="btn btn-ghost btn-sm" onclick="runCodeHelp('review')" >Review</button>
+    <button class="btn btn-ghost btn-sm" onclick="runCodeHelp('optimize')" >Optimize</button>
+    <button class="btn btn-ghost btn-sm" onclick="runCodeHelp('hint')" >Hint</button>
   </div>
   <div id="codeHelpResult" style="display:none;margin-top:12px;padding:12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;font-size:13px;line-height:1.6;white-space:pre-wrap;font-family:var(--mono);max-height:280px;overflow-y:auto"></div>
 </div>
@@ -1779,17 +1835,17 @@ body.tc-select-mode .transcript-entry.selected::before, .transcript-entry.select
   <!-- Document attach button + dropdown -->
   <div style="position:relative;flex-shrink:0" id="docAttachWrap">
     <button class="mic-btn" id="docAttachBtn" onclick="toggleDocPanel()" title="Attach documents to this session" aria-label="Attach documents" style="font-size:15px;width:36px;height:36px">
-      📎<span id="docAttachCount" style="display:none;position:absolute;top:-5px;right:-5px;background:var(--accent);color:var(--bg);font-size:10px;font-weight:700;border-radius:99px;padding:1px 5px;font-family:var(--sans)">0</span>
+      {% include "interview/_icon.html" with name="paperclip" %}<span id="docAttachCount" style="display:none;position:absolute;top:-5px;right:-5px;background:var(--accent);color:var(--bg);font-size:10px;font-weight:700;border-radius:99px;padding:1px 5px;font-family:var(--sans)">0</span>
     </button>
     <div id="docAttachPanel" style="display:none;position:absolute;bottom:calc(100% + 8px);left:0;
          background:var(--bg2);border:1px solid var(--border2);border-radius:10px;
          box-shadow:var(--shadow-lg);min-width:260px;max-width:320px;z-index:300;padding:8px">
-      <div style="font-size:12px;font-weight:700;color:var(--text3);padding:4px 8px 6px;text-transform:uppercase;letter-spacing:.04em">Documents</div>
+      <div style="font-size:12.5px;font-weight:700;color:var(--text2);padding:4px 8px 6px">Documents for this session</div>
       <div id="docAttachList" style="max-height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:4px">
         <div style="font-size:13px;color:var(--text3);padding:8px;text-align:center" id="docAttachEmpty">Loading…</div>
       </div>
       <div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px">
-        <a href="/documents/" style="font-size:12px;color:var(--accent);padding:4px 8px;display:block;border-radius:6px" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''" >+ Upload new document</a>
+        <a href="/documents/" class="doc-attach-upload">Upload a new document</a>
       </div>
     </div>
   </div>
@@ -3004,6 +3060,7 @@ function addTranscriptEntryUI(text, type, speakerName) {
   if (ph) ph.remove();
   const div = document.createElement('div');
   div.className = `transcript-entry ${type}`;
+  div.tabIndex = 0;
   const label = speakerLabel(type, speakerName);
   const now = new Date();
   const ts = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -3377,23 +3434,24 @@ function runCodeHelp(action) {
 }
 
 // ── Mock Interview ────────────────────────────────────────────────────────────
+const MOCK_BTN_HTML = `{% include "interview/_icon.html" with name="forward" %} <span class="btn-label">Next question</span>`;
 function getNextMockQuestion() {
   const btn = document.getElementById('mockQBtn');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ …'; }
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
   const sessionId = "{{ session.id }}";
   fetch(`/api/session/${sessionId}/mock-question/`, {
     method: 'POST',
     headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken')},
     body: JSON.stringify({})
   }).then(res => {
-    if (!res.ok) { res.text().then(t => alert('Error: ' + t)); if (btn) { btn.disabled = false; btn.textContent = '🎓 Next Q'; } return; }
+    if (!res.ok) { res.text().then(t => alert('Error: ' + t)); if (btn) { btn.disabled = false; btn.innerHTML = MOCK_BTN_HTML; } return; }
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let fullText = '';
     function read() {
       reader.read().then(({done, value}) => {
         if (done) {
-          if (btn) { btn.disabled = false; btn.textContent = '🎓 Next Q'; }
+          if (btn) { btn.disabled = false; btn.innerHTML = MOCK_BTN_HTML; }
           if (fullText.trim()) appendTranscriptEntry('🤖 AI Interviewer', fullText.trim(), 'system');
           return;
         }
@@ -3409,7 +3467,7 @@ function getNextMockQuestion() {
       });
     }
     read();
-  }).catch(e => { alert('Error: ' + e.message); if (btn) { btn.disabled = false; btn.textContent = '🎓 Next Q'; } });
+  }).catch(e => { alert('Error: ' + e.message); if (btn) { btn.disabled = false; btn.innerHTML = MOCK_BTN_HTML; } });
 }
 
 function appendTranscriptEntry(speaker, text, type) {
@@ -4704,9 +4762,10 @@ document.addEventListener('keydown', e => {
 if (SESSION_TYPE === 'meeting') {
   let participants = [];
   let activeSpeaker = null;
-  let recorderPanelOpen = true;
-  // Start open on load
-  document.getElementById('teamsRecorderPanel').classList.add('panel-open');
+  // Open on load, except on a phone, where the open panel leaves no room for the transcript; one tap opens it
+  let recorderPanelOpen = !window.matchMedia('(max-width: 640px)').matches;
+  document.getElementById('teamsRecorderPanel').classList.toggle('panel-open', recorderPanelOpen);
+  document.getElementById('recorderPanelToggle').textContent = recorderPanelOpen ? '▲' : '▼';
 
   function toggleRecorderPanel() {
     recorderPanelOpen = !recorderPanelOpen;
