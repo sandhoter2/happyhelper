@@ -2486,8 +2486,8 @@ let micLastCommitted = '';
 let micManualAccum = '';   // tracks committed finals in manual mode (not interim)
 let _tvInputLockUntil = 0; // mic interim won't overwrite question input while Their Voice holds it
 
-// Audio capture is always real-time (~5 s chunks regardless of mic mode badge).
-const _TV_CHUNK_MS = 5000;
+// Audio capture is always real-time (~3 s chunks regardless of mic mode badge).
+const _TV_CHUNK_MS = 3000;
 
 // Returns the AI submission interval in ms, driven by the mic mode badge.
 // 'manual' → never auto-trigger (returns Infinity); 'dynamic' → 8 s;
@@ -5135,90 +5135,105 @@ if (SESSION_TYPE === 'meeting') {
     const orig = btn ? btn.innerHTML : '';
     if (btn) { btn.textContent = 'Scanning…'; btn.disabled = true; }
     try {
-      let blob;
-      // If Their Voice is already capturing, reuse its stream — Chrome blocks two simultaneous captures
+      let blob = null;
+
+      // Path 1: Their Voice is active — reuse the existing hidden video element
       if (typeof theirVoiceActive !== 'undefined' && theirVoiceActive && typeof _captureFrame === 'function') {
         blob = await _captureFrame(1.0);
-        if (!blob) { toast('Could not grab frame — try again in a moment', 'warn'); return; }
+        if (!blob) {
+          toast('Video frame not ready — wait a moment and try again', 'warn');
+          return;
+        }
       } else {
-        // No active share: ask the user to pick a window/tab
+        // Path 2: No active share — ask the user to pick a window/tab now
+        toast('Select your Teams/Meet window when the share dialog opens', 'info', 5000);
         let display;
         try {
-          display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+          display = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 1 }, audio: false });
         } catch (e) {
-          toast('Screen share cancelled', 'info');
+          toast(e.name === 'NotAllowedError' ? 'Screen share cancelled' : 'Could not share screen: ' + e.message,
+                'info', 3000);
           return;
         }
         const videoTrack = display.getVideoTracks()[0];
-        if (typeof ImageCapture !== 'undefined') {
-          try {
+        // Grab a single frame then immediately stop sharing
+        try {
+          if (typeof ImageCapture !== 'undefined') {
             const ic = new ImageCapture(videoTrack);
             const bitmap = await ic.grabFrame();
             const canvas = document.createElement('canvas');
             canvas.width = bitmap.width; canvas.height = bitmap.height;
             canvas.getContext('2d').drawImage(bitmap, 0, 0);
-            blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
-          } finally {
-            display.getTracks().forEach(t => t.stop());
+            blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.9));
+          } else {
+            // Fallback: render into a video element first
+            const video = document.createElement('video');
+            video.srcObject = new MediaStream([videoTrack]);
+            video.muted = true;
+            await video.play();
+            await new Promise(res => { video.onloadeddata = res; setTimeout(res, 1500); });
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth || 1280; canvas.height = video.videoHeight || 720;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            video.srcObject = null;
+            blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.9));
           }
-        } else {
-          // Fallback: video element (Safari / older browsers)
-          const video = document.createElement('video');
-          video.srcObject = new MediaStream([videoTrack]);
-          video.muted = true;
-          await video.play();
-          await new Promise(res => { video.onloadeddata = res; setTimeout(res, 2000); });
-          const canvas = document.createElement('canvas');
-          canvas.width = video.videoWidth || 1280; canvas.height = video.videoHeight || 720;
-          canvas.getContext('2d').drawImage(video, 0, 0);
-          video.srcObject = null;
-          display.getTracks().forEach(t => t.stop());
-          blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+        } finally {
+          display.getTracks().forEach(t => t.stop()); // stop share immediately after capture
         }
+        if (!blob) { toast('Could not capture frame — try again', 'warn'); return; }
       }
 
+      // Send screenshot to Groq vision for participant extraction
       const form = new FormData();
-      form.append('screenshot', blob, 'screen.png');
+      form.append('screenshot', blob, 'screen.jpg');
       const resp = await fetch(`/api/session/${SESSION_ID}/scan-participants/`, {
         method: 'POST',
         headers: { 'X-CSRFToken': getCookie('csrftoken') },
         body: form,
       });
       const data = await resp.json();
-      if (!resp.ok) { toast(data.error || 'Scan failed', 'error'); return; }
+      if (!resp.ok) { toast(data.error || 'Scan failed — check the Groq API key', 'error'); return; }
 
-      const names = (data.names || []).filter(n => n && n.trim());
+      const names    = (data.names    || []).filter(n => n && n.trim());
       const speakers = (data.speakers || []).filter(n => n && n.trim());
       const detectedTitle = (data.title || '').trim();
-
-      // Combine names + speakers (deduplicated)
       const allNames = [...new Set([...names, ...speakers])];
-      if (!allNames.length) { toast('No participant names detected in screenshot', 'info'); return; }
 
+      if (!allNames.length && !detectedTitle) {
+        toast('Nothing detected — make sure the participant list or names are visible on screen', 'info', 5000);
+        return;
+      }
+
+      // Add any new participants
       let added = 0;
       for (const name of allNames) {
         if (participants.find(p => p.name.toLowerCase() === name.toLowerCase())) continue;
-        const r2 = await fetch(`/api/session/${SESSION_ID}/participants/`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
-          body: JSON.stringify({ name: name.trim() }),
-        });
-        const d = await r2.json();
-        if (d.id) { participants.push({ id: d.id, name: d.name, role: d.role, color: d.color }); added++; }
+        try {
+          const r2 = await fetch(`/api/session/${SESSION_ID}/participants/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+            body: JSON.stringify({ name: name.trim() }),
+          });
+          const d = await r2.json();
+          if (d.id) { participants.push({ id: d.id, name: d.name, role: d.role, color: d.color }); added++; }
+        } catch (_) {}
       }
-      renderParticipants();
-      toast(added ? `Added ${added} participant${added > 1 ? 's' : ''} from screen` : 'Participants already in list', added ? 'success' : 'info');
+      if (added) renderParticipants();
+      toast(
+        added ? `Added ${added} participant${added > 1 ? 's' : ''} from screen` : 'Participants already up to date',
+        added ? 'success' : 'info'
+      );
 
-      // Update session title — replace on first detection, append if title already set
+      // Update session title (replace first time, append on re-scan)
       if (detectedTitle) {
         const mode = _tvMeetingTitleSet ? 'append' : 'replace';
+        await _applyMeetingTitle(detectedTitle, mode); // set flag AFTER await
         _tvMeetingTitleSet = true;
-        await _applyMeetingTitle(detectedTitle, mode);
       }
 
-      // Refresh calendar if connected (calendar knows about this meeting)
-      if (calendarConnected) {
-        try { refreshCalendarEvents(); } catch(e) {}
+      if (typeof calendarConnected !== 'undefined' && calendarConnected) {
+        try { refreshCalendarEvents(); } catch (_) {}
       }
     } catch (e) {
       toast('Scan error: ' + e.message, 'error');
