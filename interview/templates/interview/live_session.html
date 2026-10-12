@@ -1360,6 +1360,10 @@ body.tc-select-mode .transcript-entry.selected::before, .transcript-entry.select
 .note-input:focus { border-color: var(--accent); }
 .ai-tpl-item.active { background: rgb(var(--accent-rgb) / 0.13); }
 
+/* Transcribe settings opened from the 30s chip while the answer panel is hidden (phones) */
+.transcribe-config-panel.tc-sheet { position: fixed; left: 12px; right: 12px; bottom: 132px; top: auto; z-index: 400; min-width: 0; border-radius: 12px; box-shadow: var(--shadow-lg); }
+.transcribe-config-panel.tc-sheet::before { display: none; }
+
 /* Code helper and the documents menu */
 .code-helper-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .code-helper-title { font-family: var(--display); font-size: 14px; font-weight: 700; color: var(--text); white-space: nowrap; }
@@ -1914,6 +1918,9 @@ const SESSION_ID = "{{ session.id }}";
 const SESSION_TITLE = "{{ session.title|escapejs }}";
 const LANGUAGE = "{{ session.language }}";
 const SESSION_TYPE = "{{ session.session_type }}";
+// Phones and tablets. iPadOS reports itself as a Mac, so touch points tell it apart.
+const IS_IOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const IS_PHONE = IS_IOS || /Android/i.test(navigator.userAgent);
 
 function getCookie(name) {
   const v = `; ${document.cookie}`;
@@ -2310,10 +2317,28 @@ function toggleTCPanel() {
   const panel = doc.getElementById('tcPanel');
   if (!panel) return;
   const isOpen = panel.classList.contains('open');
+  if (!isOpen && doc === document) {
+    // On a phone the answer panel is hidden while the Transcript tab is showing, which hid this
+    // panel too. Show it as a sheet from the page itself, and put it back when it closes.
+    const home = panel._home || panel.parentElement;
+    if (!home.getClientRects().length) {
+      panel._home = home;
+      document.body.appendChild(panel);
+      panel.classList.add('tc-sheet');
+    }
+  }
+  if (isOpen) _returnTCPanel(panel);
   panel.classList.toggle('open', !isOpen);
   // Highlight whichever ⚙ button is in the active document
   const btn = doc.getElementById('fTcConfigBtn') || doc.getElementById('tcConfigBtn') || document.getElementById('tcConfigBtn');
   if (btn) btn.classList.toggle('open', !isOpen);
+}
+
+function _returnTCPanel(panel) {
+  if (panel && panel._home && panel.classList.contains('tc-sheet')) {
+    panel.classList.remove('tc-sheet');
+    panel._home.appendChild(panel);
+  }
 }
 
 // Returns true for numeric interval modes (e.g. '2', '5', '30', '120')
@@ -2352,7 +2377,7 @@ function setTranscribeMode(mode) {
   if (dynamicInfo) dynamicInfo.style.display = mode === 'dynamic' ? 'flex' : 'none';
 
   // Update visible mic mode badge
-  const modeLabels = { manual:'MANUAL', dynamic:'Dynamic', '2':'2s', '5':'5s', '10':'10s', '30':'30s', '60':'1min', '120':'2min' };
+  const modeLabels = { manual:'Manual', dynamic:'Dynamic', '2':'2s', '5':'5s', '10':'10s', '30':'30s', '60':'1 min', '120':'2 min' };
   const badge = document.getElementById('micModeBadge');
   if (badge) {
     badge.textContent = modeLabels[mode] || mode;
@@ -2557,8 +2582,10 @@ function makeMicRecognition() {
   const rec = new SpeechRecognition();
   rec.continuous = true;
   rec.interimResults = true;
-  rec.lang = 'en-US';
+  rec.lang = LANGUAGE || 'en-US';
   rec.maxAlternatives = 1;
+  rec.onsoundstart = () => { micHeardSound = true; };
+  rec.onaudiostart = () => { micAudioStarted = true; };
 
   rec.onresult = (event) => {
     let interimStr = '';
@@ -2615,33 +2642,90 @@ function makeMicRecognition() {
   rec.onerror = (e) => {
     if (e.error === 'no-speech') return;
     if (e.error === 'aborted')  return;
+    // A phone stops listening while the page is in the background; pick up again on return
+    if (document.hidden) { micResumeOnShow = true; return; }
     setStatus('Speech error: ' + e.error);
+    const fatal = ['audio-capture', 'not-allowed', 'service-not-allowed', 'language-not-supported'].includes(e.error);
+    if (fatal) {
+      rec._fatal = true;
+      // iOS refuses a restart that did not come from a tap; that is a pause, not a permission problem
+      const msg = (rec._auto && e.error === 'not-allowed')
+        ? 'Listening paused. Tap the microphone to continue.'
+        : (MIC_ERROR_TEXT[e.error] || ('The microphone stopped: ' + e.error));
+      micNotice(msg, 'error', 10000);
+    } else {
+      micNotice(MIC_ERROR_TEXT[e.error] || ('Speech error: ' + e.error), 'warn', 6000);
+    }
   };
 
   // Fresh instance on each restart — prevents Chrome re-firing old final results
   rec.onend = () => {
     if (!micActive) return;
+    if (rec._fatal) { stopMic(); return; }
+    if (document.hidden) { micResumeOnShow = true; return; }
     micRecognition = makeMicRecognition();
-    micRecognition.start();
+    micRecognition._auto = true;
+    try { micRecognition.start(); } catch (_) { micResumeOnShow = true; }
   };
 
   return rec;
 }
 
+const MIC_ERROR_TEXT = {
+  'audio-capture': 'No sound is reaching the microphone. If a call or another app is using the microphone on this device, it cannot be shared: a phone lets one app listen at a time. Run the call on another device, or end it here.',
+  'not-allowed': 'Microphone permission is off for this site. Allow it in the browser settings, then tap the microphone again.',
+  'service-not-allowed': IS_IOS
+    ? 'Speech recognition is off on this iPhone. Turn on Settings > General > Keyboard > Enable Dictation, then tap the microphone again.'
+    : 'This browser blocked speech recognition for this site.',
+  'network': 'The speech service could not be reached. Check the connection; listening will retry.',
+  'language-not-supported': 'This browser cannot transcribe the language set for this session.',
+};
+let micHeardSound = false, micAudioStarted = false, micResumeOnShow = false, micWatchdog = null;
+const _micNoticeShown = {};
+// The status chip is hidden on phones, so microphone problems also show as a message, once per 30 s
+function micNotice(msg, kind, ms) {
+  setStatus(msg);
+  const now = Date.now();
+  if (_micNoticeShown[msg] && now - _micNoticeShown[msg] < 30000) return;
+  _micNoticeShown[msg] = now;
+  toast(msg, kind || 'warn', ms || 7000);
+}
+
+// Coming back to the page after switching apps: listen again
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden || !micActive || !micResumeOnShow) return;
+  micResumeOnShow = false;
+  try { if (micRecognition) { micRecognition.onend = null; micRecognition.stop(); } } catch (_) {}
+  micRecognition = makeMicRecognition();
+  micRecognition._auto = true;
+  try { micRecognition.start(); } catch (_) { micNotice('Listening paused. Tap the microphone to continue.', 'warn', 8000); }
+});
+
 async function startMic() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
-    toast('This browser cannot transcribe speech. Use Chrome or Edge.', 'error', 6000);
+    toast(IS_PHONE
+      ? 'This browser cannot turn speech into text. On iPhone use Safari; on Android use Chrome.'
+      : 'This browser cannot transcribe speech. Use Chrome or Edge.', 'error', 7000);
     return;
   }
 
-  try {
-    micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-  } catch(err) {
-    setStatus('Mic blocked');
-    toast('Microphone blocked: ' + err.message + '. Allow it in the browser permissions.', 'error', 7000);
-    return;
+  // On a phone the speech recogniser needs the microphone to itself: a second capture of the
+  // same microphone (for the level meter and the saved audio copy) leaves it hearing nothing.
+  // Phones therefore skip that second capture; computers keep it.
+  if (!IS_PHONE) {
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    } catch(err) {
+      setStatus('Mic blocked');
+      const busy = err && (err.name === 'NotReadableError' || err.name === 'TrackStartError');
+      toast(busy
+        ? 'The microphone is in use by another app or tab. Close it, then try again.'
+        : 'Microphone blocked: ' + err.message + '. Allow it in the browser permissions.', 'error', 8000);
+      return;
+    }
   }
+  micHeardSound = false; micAudioStarted = false; micResumeOnShow = false;
 
   micActive = true;
   micLastCommitted = '';
@@ -2653,11 +2737,25 @@ async function startMic() {
   recDot.classList.add('active');
   document.title = '🔴 Recording — ' + (document.title.replace(/^[🔴✨]\s*/,''));
   setStatus('Listening… speak your question');
-  startWaveform(micStream);
+  if (micStream) startWaveform(micStream);
 
   micRecognition = makeMicRecognition();
-  micRecognition.start();
-  startRawRecording(micStream);
+  try {
+    micRecognition.start();
+  } catch (err) {
+    micNotice('The microphone could not start: ' + err.message, 'error', 8000);
+    stopMic();
+    return;
+  }
+  if (micStream) startRawRecording(micStream);
+
+  // Phones: say so if nothing has been heard after 12 seconds
+  clearTimeout(micWatchdog);
+  if (IS_PHONE) {
+    micWatchdog = setTimeout(() => {
+      if (micActive && !micHeardSound && !document.hidden) micNotice(MIC_ERROR_TEXT['audio-capture'], 'warn', 10000);
+    }, 12000);
+  }
 
   // Warn clearly if manual mode is active — words won't appear in transcript automatically
   if (transcribeMode === 'manual') {
@@ -2732,6 +2830,9 @@ window.addEventListener('beforeunload', () => {
 
 function stopMic() {
   micActive = false;
+  clearTimeout(micWatchdog);
+  micResumeOnShow = false;
+  if (micStream) { try { micStream.getTracks().forEach(t => t.stop()); } catch (_) {} }
   micStream = null;
   if (micRecognition) { micRecognition.onend = null; micRecognition.stop(); micRecognition = null; }
 
@@ -3862,7 +3963,7 @@ document.addEventListener('click', e => {
   if (!e.target.closest('#fTcConfigBtn') && !e.target.closest('#micModeBadge') && !e.target.closest('#tcPanel')) {
     const panel = document.getElementById('tcPanel');
     const btn   = document.getElementById('fTcConfigBtn');
-    if (panel) panel.classList.remove('open');
+    if (panel) { panel.classList.remove('open'); _returnTCPanel(panel); }
     if (btn)   btn.classList.remove('open');
   }
 });
