@@ -2827,7 +2827,8 @@ async function startTheirVoice() {
   // ── Choose mode based on whether audio was shared ───────────────────────────
   const audioTracks = theirVoiceStream.getAudioTracks().filter(t => t.readyState === 'live');
   if (audioTracks.length) {
-    toast(`🎤 Audio capture active — words appear every ~${Math.round(_tvChunkMs()/1000)} s (matches your mic mode setting).`, 'success', 6000);
+    const _aiSec = _tvAIIntervalMs() === Infinity ? 'manual' : Math.round(_tvAIIntervalMs()/1000) + ' s';
+    toast(`🎤 Audio capture active — AI submits every ${_aiSec} (matches your mic mode setting).`, 'success', 6000);
     _startTVAudio(audioTracks);
   } else {
     toast('No audio shared — caption mode active. Turn on Teams Live Captions (... → Language) for best results.', 'warn', 9000);
