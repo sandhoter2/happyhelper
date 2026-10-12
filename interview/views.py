@@ -2427,26 +2427,28 @@ def api_document_upload(request):
     )
 
     try:
-        # Local extraction — synchronous, no polling required
-        job_info = llama_service.upload_file(upload, filename)
-        extracted_text = job_info.get("_text", "")
-        page_count = llama_service.estimate_page_count(extracted_text)
-        config = _get_parser_config()
-        existing_pages = UserDocument.objects.filter(
-            owner=request.user, status=UserDocument.STATUS_READY
-        ).exclude(id=doc.id).aggregate(t=models.Sum("page_count"))["t"] or 0
-        if (existing_pages + page_count) > config.max_total_pages:
-            doc.delete()
-            return JsonResponse({"error": "Page limit exceeded"}, status=400)
-        doc.parsed_text = extracted_text
-        doc.page_count = page_count
-        doc.status = UserDocument.STATUS_READY
-        doc.save(update_fields=["parsed_text", "page_count", "status"])
+        job_info = llama_service.upload_file(upload, filename, webhook_id=settings.LLAMAPARSE_WEBHOOK_ID)
+        job_id = job_info.get("id") or job_info.get("job_id", "")
+        llama_file_id = job_info.get("file_id", "")
+        doc.llama_job_id = job_id
+        doc.llama_file_id = llama_file_id
+        doc.save(update_fields=["llama_job_id", "llama_file_id"])
+
+        # If the folder has a cloud directory, add this file to it immediately
+        if folder and folder.llama_directory_id and llama_file_id:
+            try:
+                llama_service.add_file_to_directory(folder.llama_directory_id, llama_file_id)
+                doc.llama_cloud_synced = True
+                doc.save(update_fields=["llama_cloud_synced"])
+            except Exception:
+                logger.exception("add_file_to_directory failed for doc %s dir %s file %s",
+                                 doc.id, folder.llama_directory_id, llama_file_id)
     except Exception as exc:
         doc.status = UserDocument.STATUS_ERROR
         doc.error_message = str(exc)
         doc.save()
 
+    # Return immediately — client polls api_document_status until ready/error
     return JsonResponse({
         "id": str(doc.id),
         "filename": doc.original_filename,
@@ -2461,20 +2463,58 @@ def api_document_upload(request):
 def api_document_status(request, document_id):
     doc = get_object_or_404(UserDocument, id=document_id, owner=request.user)
 
-    # Mark stale processing docs as error (local extraction should be instant)
-    if doc.status == UserDocument.STATUS_PROCESSING:
-        if (dj_timezone.now() - doc.created_at) > timedelta(minutes=5):
+    # Mark stale uploads (processing > 30 min with no job ID) as error
+    if doc.status == UserDocument.STATUS_PROCESSING and not doc.llama_job_id:
+        if (dj_timezone.now() - doc.created_at) > timedelta(minutes=30):
             doc.status = UserDocument.STATUS_ERROR
-            doc.error_message = "Processing timed out"
+            doc.error_message = "Upload timed out: no parse job was created"
             doc.save(update_fields=["status", "error_message"])
+
+    # If still processing and we have a job ID, check LlamaParse now
+    if doc.status == UserDocument.STATUS_PROCESSING and doc.llama_job_id:
+        try:
+            config = _get_parser_config()
+            info = llama_service.get_job_status(doc.llama_job_id)
+            remote = info.get("status", "").upper()
+            if remote in ("COMPLETED", "SUCCESS"):
+                markdown = llama_service.get_parsed_markdown(doc.llama_job_id)
+                page_count = llama_service.estimate_page_count(markdown)
+                existing_pages = UserDocument.objects.filter(
+                    owner=request.user, status=UserDocument.STATUS_READY
+                ).exclude(id=doc.id).aggregate(t=models.Sum("page_count"))["t"] or 0
+                if (existing_pages + page_count) > config.max_total_pages:
+                    llama_service.delete_job(doc.llama_job_id)
+                    doc.delete()
+                    return JsonResponse({"error": "Page limit exceeded"}, status=400)
+                doc.parsed_text = markdown
+                doc.page_count = page_count
+                doc.status = UserDocument.STATUS_READY
+                doc.save(update_fields=["parsed_text", "page_count", "status"])
+
+                # Retry cloud sync if not yet synced and file belongs to a folder with a directory
+                if not doc.llama_cloud_synced and doc.llama_file_id and doc.folder and doc.folder.llama_directory_id:
+                    try:
+                        llama_service.add_file_to_directory(doc.folder.llama_directory_id, doc.llama_file_id)
+                        doc.llama_cloud_synced = True
+                        doc.save(update_fields=["llama_cloud_synced"])
+                        logger.info("Cloud sync completed for doc %s on parse completion", doc.id)
+                    except Exception:
+                        logger.exception("Retry add_file_to_directory failed for doc %s", doc.id)
+
+            elif remote in ("FAILED", "CANCELLED", "CANCELED", "ERROR", "NOT_FOUND"):
+                doc.status = UserDocument.STATUS_ERROR
+                doc.error_message = f"LlamaParse job ended with status: {remote}"
+                doc.save(update_fields=["status", "error_message"])
+        except Exception:
+            logger.exception("api_document_status error for doc %s job %s", doc.id, doc.llama_job_id)
 
     return JsonResponse({
         "id": str(doc.id),
         "status": doc.status,
         "page_count": doc.page_count,
         "error_message": doc.error_message,
-        "llama_cloud_synced": False,
-        "llama_file_id": "",
+        "llama_cloud_synced": doc.llama_cloud_synced,
+        "llama_file_id": doc.llama_file_id,
     })
 
 
