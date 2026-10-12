@@ -2758,11 +2758,65 @@ async function startTheirVoice() {
     return;
   }
 
+  // ── Auto-scan participants from the video frame before dropping video ─────
+  const videoTrack = theirVoiceStream.getVideoTracks()[0];
+  if (videoTrack) {
+    try {
+      let screenshotBlob;
+      if (typeof ImageCapture !== 'undefined') {
+        const ic = new ImageCapture(videoTrack);
+        const bitmap = await ic.grabFrame();
+        const canvas = document.createElement('canvas');
+        canvas.width = bitmap.width; canvas.height = bitmap.height;
+        canvas.getContext('2d').drawImage(bitmap, 0, 0);
+        screenshotBlob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+      } else {
+        const vid = document.createElement('video');
+        vid.srcObject = new MediaStream([videoTrack]);
+        vid.muted = true;
+        await vid.play();
+        await new Promise(res => { vid.onloadeddata = res; setTimeout(res, 1500); });
+        const canvas = document.createElement('canvas');
+        canvas.width = vid.videoWidth || 1280; canvas.height = vid.videoHeight || 720;
+        canvas.getContext('2d').drawImage(vid, 0, 0);
+        vid.srcObject = null;
+        screenshotBlob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+      }
+      if (screenshotBlob) {
+        const form = new FormData();
+        form.append('screenshot', screenshotBlob, 'screen.png');
+        fetch(`/api/session/${SESSION_ID}/scan-participants/`, {
+          method: 'POST',
+          headers: { 'X-CSRFToken': getCookie('csrftoken') },
+          body: form,
+        }).then(r => r.json()).then(async data => {
+          const allNames = [...new Set([...(data.names||[]), ...(data.speakers||[])])].filter(n => n && n.trim());
+          let added = 0;
+          for (const name of allNames) {
+            if (participants.find(p => p.name.toLowerCase() === name.toLowerCase())) continue;
+            const r2 = await fetch(`/api/session/${SESSION_ID}/participants/`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+              body: JSON.stringify({ name: name.trim() }),
+            });
+            const d = await r2.json();
+            if (d.id) { participants.push({ id: d.id, name: d.name, role: d.role, color: d.color }); added++; }
+          }
+          if (added) { renderParticipants(); toast(`Found ${added} participant${added>1?'s':''} from your screen.`, 'success', 4000); }
+        }).catch(() => {});
+      }
+    } catch (_) {}
+    videoTrack.stop();
+  }
+
+  // ── Audio-only stream for MediaRecorder (avoids stopped-video-track issues) ─
+  const audioOnlyStream = new MediaStream(theirVoiceStream.getAudioTracks());
+
   const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
     ? 'audio/webm;codecs=opus' : 'audio/webm';
 
   try {
-    theirVoiceRecorder = new MediaRecorder(theirVoiceStream, { mimeType });
+    theirVoiceRecorder = new MediaRecorder(audioOnlyStream, { mimeType });
   } catch (err) {
     toast('MediaRecorder failed: ' + err.message, 'error', 6000);
     theirVoiceStream.getTracks().forEach(t => t.stop());
@@ -2774,7 +2828,7 @@ async function startTheirVoice() {
   const btn = document.getElementById('theirVoiceBtn');
   if (btn) { btn.classList.add('active'); btn.setAttribute('aria-pressed', 'true'); btn.title = 'Stop speaker capture (🔊)'; }
   setStatus('Capturing speaker audio…');
-  toast('🔊 Speaker audio capture active — their voice will appear as "Interviewer" entries.', 'success', 4000);
+  toast('🔊 Speaker audio active — Teams voices will appear as "Interviewer" entries every ~8s.', 'success', 5000);
 
   // If user stops the share from the browser toolbar, clean up
   theirVoiceStream.getAudioTracks()[0].addEventListener('ended', () => stopTheirVoice());
