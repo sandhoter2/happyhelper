@@ -2782,6 +2782,7 @@ async function _applyMeetingTitle(title, mode) {
 async function toggleTheirVoice() {
   if (theirVoiceActive) { stopTheirVoice(); } else { await startTheirVoice(); }
 }
+window.toggleTheirVoice = toggleTheirVoice;
 
 async function startTheirVoice() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
@@ -2945,10 +2946,15 @@ function _tvAudioLoop() {
     if (theirVoiceActive) setTimeout(_tvAudioLoop, 500);
   };
 
-  recorder.onstop = async () => {
+  recorder.onstop = () => {
     if (!theirVoiceActive) return;
+    // Pipeline: start next recording cycle IMMEDIATELY so there is no dead-air gap.
+    // Transcription of this chunk runs in parallel in the background.
+    _tvAudioLoop();
+
     const blob = new Blob(chunks, { type: _tvAudioMime });
-    if (blob.size >= 100) {
+    if (blob.size < 100) return;
+    (async () => {
       const ext = _tvAudioMime.includes('ogg') ? 'ogg' : 'webm';
       const speakerName = _tvActiveSpeaker || 'Interviewer';
       const form = new FormData();
@@ -2962,9 +2968,7 @@ function _tvAudioLoop() {
         const d = await res.json();
         if (d.text && d.text.trim()) await _tvSaveEntry(d.text.trim(), speakerName);
       } catch (_) {}
-    }
-    // Start next cycle
-    if (theirVoiceActive) _tvAudioLoop();
+    })();
   };
 
   recorder.start();
