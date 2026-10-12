@@ -2484,6 +2484,7 @@ function refreshMHSuggestions() {
 let micRecognition = null;
 let micLastCommitted = '';
 let micManualAccum = '';   // tracks committed finals in manual mode (not interim)
+let _tvInputLockUntil = 0; // mic interim won't overwrite question input while Their Voice holds it
 
 function setMicInputText(text) {
   const qi = document.getElementById('questionInput');
@@ -2516,8 +2517,8 @@ function makeMicRecognition() {
 
     // Show live interim speech in the transcript preview strip (not question input in manual mode)
     if (interimStr) {
-      if (transcribeMode !== 'manual') {
-        // Auto/timed: mirror interim into question input so user sees what's being said
+      if (transcribeMode !== 'manual' && Date.now() > _tvInputLockUntil) {
+        // Auto/timed: mirror interim into question input (but not if Their Voice just set it)
         setMicInputText(interimStr);
       }
       interimText.textContent = interimStr;
@@ -2817,6 +2818,8 @@ async function _tvSaveEntry(text, speakerName) {
   // Update live transcript UI immediately
   addTranscriptEntryUI(text, 'system', speakerName || 'Interviewer');
   // Flow captured text into the question input so user can get AI help
+  // Lock mic interim from overwriting this for 10 s so the user can read/act on it
+  _tvInputLockUntil = Date.now() + 10000;
   setMicInputText(text);
   if (typeof autoAI !== 'undefined' && autoAI && typeof triggerAI === 'function') {
     triggerAI(text, true);
