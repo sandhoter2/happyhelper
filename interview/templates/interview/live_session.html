@@ -2710,23 +2710,26 @@ function stopMic() {
 }
 
 
-// ── Their Voice: capture Teams captions via screen share + vision AI polling ──
-// Audio transcription of a captured tab/screen is unreliable (no mic access,
-// compressed codecs). Instead we keep the video stream, poll frames every 3s,
-// crop the caption strip at the bottom of the screen, and send to the vision AI
-// which reads whatever Teams Live Captions are showing. Much more reliable.
+// ── Their Voice: captions-first, audio fallback ───────────────────────────────
+// Priority 1: Poll Teams Live Captions via vision AI (screen frame crop).
+// Priority 2: If no captions detected after ~12 s, fall back to MediaRecorder
+//             → Whisper audio transcription (requires "Share tab audio").
+// When captions appear again, audio fallback is automatically suspended.
 let theirVoiceStream = null;
-let theirVoiceVideo = null;   // hidden <video> element driving frames
+let theirVoiceVideo = null;       // hidden <video> for frame capture
 let theirVoicePollTimer = null;
 let theirVoiceActive = false;
-let _lastCaptionText = '';    // deduplicate repeated captions
+let _lastCaptionText = '';
+let _captionMissCount = 0;        // consecutive polls with no caption text
+const _CAPTION_MISS_LIMIT = 4;   // 4 × 3 s = 12 s before audio fallback kicks in
+
+// Audio fallback state
+let _tvAudioRecorder = null;
+let _tvAudioMode = false;         // true while audio fallback is active
+const _TV_CHUNK_MS = 8000;
 
 async function toggleTheirVoice() {
-  if (theirVoiceActive) {
-    stopTheirVoice();
-  } else {
-    await startTheirVoice();
-  }
+  if (theirVoiceActive) { stopTheirVoice(); } else { await startTheirVoice(); }
 }
 
 async function startTheirVoice() {
@@ -2735,10 +2738,14 @@ async function startTheirVoice() {
     return;
   }
 
-  toast('Share the Teams tab (or Entire Screen). Enable Teams Live Captions in Teams first for best results.', 'info', 9000);
+  toast('Share the Teams tab or Entire Screen. Enable Teams Live Captions for best results (... → Language → Turn on live captions). Tick "Share tab audio" to enable audio fallback.', 'info', 10000);
 
   try {
-    theirVoiceStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+    // Request audio too so we have it available for fallback
+    theirVoiceStream = await navigator.mediaDevices.getDisplayMedia({
+      video: true,
+      audio: { echoCancellation: false, noiseSuppression: false, sampleRate: 16000 }
+    });
   } catch (err) {
     if (err.name === 'NotAllowedError' || err.name === 'AbortError' || err.name === 'NotFoundError') {
       toast('Screen share cancelled.', 'info');
@@ -2748,23 +2755,24 @@ async function startTheirVoice() {
     return;
   }
 
-  // Set up hidden video element to drive frame capture
+  // Set up hidden video for frame capture
   theirVoiceVideo = document.createElement('video');
   theirVoiceVideo.srcObject = theirVoiceStream;
   theirVoiceVideo.muted = true;
   theirVoiceVideo.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px';
   document.body.appendChild(theirVoiceVideo);
   await theirVoiceVideo.play();
-  // Wait for first frame
   await new Promise(res => { theirVoiceVideo.onloadeddata = res; setTimeout(res, 2000); });
 
   theirVoiceActive = true;
   _lastCaptionText = '';
+  _captionMissCount = 0;
+  _tvAudioMode = false;
   const btn = document.getElementById('theirVoiceBtn');
-  if (btn) { btn.classList.add('active'); btn.setAttribute('aria-pressed', 'true'); btn.title = 'Stop capturing Teams captions'; }
+  if (btn) { btn.classList.add('active'); btn.setAttribute('aria-pressed', 'true'); btn.title = 'Stop capturing Teams captions / audio'; }
   setStatus('Reading Teams captions…');
 
-  // ── Initial full-frame scan: detect participants ────────────────────────────
+  // ── Initial participant scan ────────────────────────────────────────────────
   _captureFrame(1.0).then(async blob => {
     if (!blob) return;
     const form = new FormData();
@@ -2790,15 +2798,13 @@ async function startTheirVoice() {
     } catch (_) {}
   });
 
-  toast('🔊 Reading Teams captions live — make sure Teams Live Captions are turned on (... → Language → Turn on live captions).', 'success', 7000);
+  toast('🔊 Watching for Teams Live Captions…', 'success', 5000);
 
-  // Stop cleanly if user ends share from browser toolbar
   theirVoiceStream.getVideoTracks()[0].addEventListener('ended', () => stopTheirVoice());
 
-  // ── Poll caption strip every 3 seconds ─────────────────────────────────────
+  // ── Caption polling (every 3 s) ─────────────────────────────────────────────
   theirVoicePollTimer = setInterval(async () => {
     if (!theirVoiceActive) return;
-    // Crop bottom 20% — that's where Teams live captions appear
     const blob = await _captureFrame(0.20);
     if (!blob) return;
     const form = new FormData();
@@ -2808,24 +2814,81 @@ async function startTheirVoice() {
         method: 'POST', headers: { 'X-CSRFToken': getCookie('csrftoken') }, body: form
       });
       const data = await res.json();
-      if (!data.text || !data.text.trim()) return;
-      const text = data.text.trim();
-      // Skip if same as last caption (Teams repeats the current caption on every frame)
-      if (text === _lastCaptionText) return;
-      // Skip if it's just a small extension of the last (Teams updates incrementally)
-      if (_lastCaptionText && text.startsWith(_lastCaptionText.slice(0, 30))) {
-        _lastCaptionText = text; // update but don't add yet — wait for it to change
-        return;
+      const text = (data.text || '').trim();
+
+      if (text) {
+        // Caption found — suspend audio fallback if running
+        _captionMissCount = 0;
+        if (_tvAudioMode) _stopTVAudio();
+
+        if (text === _lastCaptionText) return;
+        if (_lastCaptionText && text.startsWith(_lastCaptionText.slice(0, 30))) {
+          _lastCaptionText = text; return; // still updating — wait for next change
+        }
+        _lastCaptionText = text;
+        const speakerName = data.speaker || (typeof getActiveSpeakerName === 'function' && getActiveSpeakerName()) || 'Interviewer';
+        addTranscriptEntryUI(text, 'system', speakerName);
+        setStatus('📝 Reading Teams captions…');
+      } else {
+        // No caption visible this poll
+        _captionMissCount++;
+        if (_captionMissCount === _CAPTION_MISS_LIMIT && !_tvAudioMode) {
+          _startTVAudio(); // kick in audio fallback
+        }
       }
-      _lastCaptionText = text;
-      const speakerName = data.speaker || (typeof getActiveSpeakerName === 'function' && getActiveSpeakerName()) || 'Interviewer';
-      addTranscriptEntryUI(text, 'system', speakerName);
     } catch (_) {}
   }, 3000);
 }
 
+// ── Audio fallback helpers ────────────────────────────────────────────────────
+function _startTVAudio() {
+  if (!theirVoiceStream) return;
+  const audioTracks = theirVoiceStream.getAudioTracks();
+  if (!audioTracks.length) {
+    toast('No audio track — tick "Share tab audio" next time for audio fallback.', 'warn', 7000);
+    return;
+  }
+  const audioStream = new MediaStream(audioTracks);
+  const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
+  try {
+    _tvAudioRecorder = new MediaRecorder(audioStream, { mimeType });
+  } catch (e) { return; }
+
+  _tvAudioMode = true;
+  setStatus('🎙 No captions — using audio fallback…');
+  toast('No captions visible — switched to audio transcription as fallback.', 'info', 5000);
+
+  _tvAudioRecorder.ondataavailable = async (e) => {
+    if (!e.data || e.data.size < 500 || !theirVoiceActive) return;
+    const ext = mimeType.includes('ogg') ? 'ogg' : 'webm';
+    const form = new FormData();
+    form.append('audio', e.data, `speaker.${ext}`);
+    form.append('speaker', 'system');
+    form.append('speaker_name', (typeof getActiveSpeakerName === 'function' && getActiveSpeakerName()) || 'Interviewer');
+    try {
+      const res = await fetch(`/api/session/${SESSION_ID}/transcribe/`, {
+        method: 'POST', headers: { 'X-CSRFToken': getCookie('csrftoken') }, body: form
+      });
+      const d = await res.json();
+      if (d.text && d.text.trim() && theirVoiceActive) {
+        addTranscriptEntryUI(d.text.trim(), 'system', d.speaker_name || 'Interviewer');
+      }
+    } catch (_) {}
+  };
+  _tvAudioRecorder.start(_TV_CHUNK_MS);
+}
+
+function _stopTVAudio() {
+  _tvAudioMode = false;
+  if (_tvAudioRecorder && _tvAudioRecorder.state !== 'inactive') {
+    try { _tvAudioRecorder.stop(); } catch (_) {}
+  }
+  _tvAudioRecorder = null;
+  setStatus('📝 Reading Teams captions…');
+}
+
 // Capture a frame from the hidden video element as a JPEG blob.
-// heightFraction = 1.0 → full frame; 0.20 → bottom 20% only
+// heightFraction = 1.0 → full frame; 0.20 → bottom 20% (caption strip)
 async function _captureFrame(heightFraction) {
   if (!theirVoiceVideo || !theirVoiceActive) return null;
   const vw = theirVoiceVideo.videoWidth || 1280;
@@ -2833,8 +2896,7 @@ async function _captureFrame(heightFraction) {
   const cropH = Math.round(vh * heightFraction);
   const cropY = heightFraction < 1.0 ? vh - cropH : 0;
   const canvas = document.createElement('canvas');
-  canvas.width = vw;
-  canvas.height = cropH;
+  canvas.width = vw; canvas.height = cropH;
   try {
     canvas.getContext('2d').drawImage(theirVoiceVideo, 0, cropY, vw, cropH, 0, 0, vw, cropH);
     return await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.85));
@@ -2843,13 +2905,14 @@ async function _captureFrame(heightFraction) {
 
 function stopTheirVoice() {
   theirVoiceActive = false;
+  _stopTVAudio();
   if (theirVoicePollTimer) { clearInterval(theirVoicePollTimer); theirVoicePollTimer = null; }
   if (theirVoiceVideo) { theirVoiceVideo.srcObject = null; theirVoiceVideo.remove(); theirVoiceVideo = null; }
   if (theirVoiceStream) { theirVoiceStream.getTracks().forEach(t => t.stop()); theirVoiceStream = null; }
   const btn = document.getElementById('theirVoiceBtn');
-  if (btn) { btn.classList.remove('active'); btn.setAttribute('aria-pressed', 'false'); btn.title = 'Capture Teams captions (🔊)'; }
-  setStatus('Caption capture off');
-  _lastCaptionText = '';
+  if (btn) { btn.classList.remove('active'); btn.setAttribute('aria-pressed', 'false'); btn.title = 'Capture Teams captions / audio (🔊)'; }
+  setStatus('Speaker capture off');
+  _lastCaptionText = ''; _captionMissCount = 0;
 }
 
 async function sendAudioChunk(blob, mimeType, speaker = 'microphone') {
