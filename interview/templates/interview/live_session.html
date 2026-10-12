@@ -2547,8 +2547,8 @@ function makeMicRecognition() {
       micLastCommitted = text;
 
       if (transcribeMode !== 'manual') {
-        // Auto / timed: save, fill question input, optionally trigger AI
-        setMicInputText(text);
+        // Auto / timed: save to transcript; only touch question input if Their Voice hasn't locked it
+        if (Date.now() > _tvInputLockUntil) setMicInputText(text);
         saveMicToServer(text);
         addTranscriptEntryUI(text, 'microphone');
         refreshMHSuggestions();
@@ -2827,9 +2827,11 @@ async function _tvSaveEntry(text, speakerName) {
   if (!text || !theirVoiceActive) return;
   // Update live transcript UI immediately
   addTranscriptEntryUI(text, 'system', speakerName || 'Interviewer');
-  // Flow captured text into the question input so user can get AI help
-  // Lock mic interim from overwriting this for 10 s so the user can read/act on it
+  // Flow captured text into both question inputs so user can get AI help
+  // Lock mic interim/final from overwriting this for 10 s
   _tvInputLockUntil = Date.now() + 10000;
+  const _qi = document.getElementById('questionInput');
+  if (_qi) { _qi.value = text; _qi.dispatchEvent(new Event('input')); }
   setMicInputText(text);
   if (typeof autoAI !== 'undefined' && autoAI && typeof triggerAI === 'function') {
     triggerAI(text, true);
