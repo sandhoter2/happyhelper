@@ -2820,6 +2820,7 @@ async function startTheirVoice() {
   theirVoiceActive = true;
   _tvActiveSpeaker = '';
   _lastCaptionText = '';
+  _tvLastAIMs = Date.now(); // prevent immediate AI fire on first chunk
   const btn = document.getElementById('theirVoiceBtn');
   if (btn) { btn.classList.add('active'); btn.setAttribute('aria-pressed', 'true'); btn.title = 'Stop speaker capture'; }
 
@@ -2850,10 +2851,11 @@ async function startTheirVoice() {
       }
       // Reflect active speaker in status bar
       if (_tvActiveSpeaker) setStatus(`🎤 ${_tvActiveSpeaker} is speaking`);
-      // Auto-set meeting title on first scan only (replace); manual scans can append
+      // Auto-set meeting title on first scan only (replace); manual scans can append.
+      // Set flag AFTER _applyMeetingTitle so a failed fetch allows a retry.
       if (!_tvMeetingTitleSet && data.title && data.title.trim()) {
-        _tvMeetingTitleSet = true;
         await _applyMeetingTitle(data.title.trim(), 'replace');
+        _tvMeetingTitleSet = true;
       }
     } catch (_) {}
   };
@@ -2885,9 +2887,9 @@ async function _tvSaveEntry(text, speakerName) {
 
   // Always show accumulated text in question input so user sees what's building up
   _tvInputLockUntil = Date.now() + 10000;
-  const _qi = document.getElementById('questionInput');
-  if (_qi) { _qi.value = _tvAccumText; _qi.dispatchEvent(new Event('input')); }
   setMicInputText(_tvAccumText);
+  const _qi = document.getElementById('questionInput');
+  if (_qi) _qi.dispatchEvent(new Event('input')); // notify any watchers after the write
 
   // Trigger AI only when the mic-mode-badge interval has elapsed
   if (typeof autoAI !== 'undefined' && autoAI && typeof triggerAI === 'function' && _tvShouldTriggerAI()) {
@@ -3048,7 +3050,9 @@ function stopTheirVoice() {
   if (btn) { btn.classList.remove('active'); btn.setAttribute('aria-pressed', 'false'); btn.title = 'Capture Teams voice (🔊)'; }
   setStatus('Speaker capture off');
   _tvActiveSpeaker = ''; _lastCaptionText = ''; _lastSeenCaption = '';
-  _tvAccumText = ''; _tvLastAIMs = 0; _tvMeetingTitleSet = false;
+  _tvAccumText = ''; _tvLastAIMs = 0; _tvInputLockUntil = 0;
+  // _tvMeetingTitleSet intentionally NOT reset here: if a title was ever set
+  // (auto or manual), subsequent manual scans should append, not replace.
 }
 
 async function sendAudioChunk(blob, mimeType, speaker = 'microphone') {
