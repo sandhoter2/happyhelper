@@ -2737,16 +2737,19 @@ async function startTheirVoice() {
   toast('Select the Teams tab (or "Entire screen") — make sure "Share audio" is checked.', 'info', 7000);
 
   try {
+    // video:true is required by Chrome/Edge — we stop the video track immediately after
     theirVoiceStream = await navigator.mediaDevices.getDisplayMedia({
-      video: false,
+      video: true,
       audio: {
         echoCancellation: false,
         noiseSuppression: false,
         sampleRate: 16000,
       }
     });
+    // Drop video — we only need the audio track
+    theirVoiceStream.getVideoTracks().forEach(t => t.stop());
   } catch (err) {
-    if (err.name === 'NotAllowedError') {
+    if (err.name === 'NotAllowedError' || err.name === 'AbortError') {
       toast('Screen audio share cancelled.', 'info');
     } else {
       toast('Could not capture speaker audio: ' + err.message, 'error', 7000);
