@@ -2789,23 +2789,14 @@ async function startTheirVoice() {
       if (data.speakers && data.speakers.length) {
         _tvActiveSpeaker = data.speakers[0].trim();
       }
-      // Add any newly visible participants
+      // Add any newly visible participants via the meeting-panel bridge
       const allNames = [...new Set([...(data.names||[]), ...(data.speakers||[])])].filter(n => n && n.trim());
-      let added = 0;
-      for (const name of allNames) {
-        if (typeof participants !== 'undefined' && participants.find(p => p.name.toLowerCase() === name.toLowerCase())) continue;
-        const r2 = await fetch(`/api/session/${SESSION_ID}/participants/`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
-          body: JSON.stringify({ name: name.trim() }),
-        });
-        const d = await r2.json();
-        if (d.id && typeof participants !== 'undefined') { participants.push({ id: d.id, name: d.name, role: d.role, color: d.color }); added++; }
+      if (allNames.length && typeof window._tvImportParticipants === 'function') {
+        const added = await window._tvImportParticipants(allNames);
+        if (added) toast(`Found ${added} participant${added > 1 ? 's' : ''} from your screen.`, 'success', 4000);
       }
-      if (added && typeof renderParticipants === 'function') {
-        renderParticipants();
-        toast(`Found ${added} participant${added > 1 ? 's' : ''} from your screen.`, 'success', 4000);
-      }
+      // Reflect active speaker in status bar
+      if (_tvActiveSpeaker) setStatus(`🎤 ${_tvActiveSpeaker} is speaking`);
     } catch (_) {}
   };
   _runScan(); // immediate
@@ -5066,39 +5057,46 @@ if (SESSION_TYPE === 'meeting') {
     btn.textContent = 'Scanning…';
     btn.disabled = true;
     try {
-      // Request screen share (video required for the frame, audio not needed)
-      let display;
-      try {
-        display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
-      } catch (e) {
-        toast('Screen share cancelled', 'info');
-        return;
-      }
-
-      const videoTrack = display.getVideoTracks()[0];
-      // Capture a single frame via ImageCapture if available, else fallback to video element
       let blob;
-      if (typeof ImageCapture !== 'undefined') {
-        const ic = new ImageCapture(videoTrack);
-        const bitmap = await ic.grabFrame();
-        display.getTracks().forEach(t => t.stop());
-        const canvas = document.createElement('canvas');
-        canvas.width = bitmap.width; canvas.height = bitmap.height;
-        canvas.getContext('2d').drawImage(bitmap, 0, 0);
-        blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+      // If Their Voice is already capturing, reuse its stream — Chrome blocks two simultaneous captures
+      if (typeof theirVoiceActive !== 'undefined' && theirVoiceActive && typeof _captureFrame === 'function') {
+        blob = await _captureFrame(1.0);
+        if (!blob) { toast('Could not grab frame — try again in a moment', 'warn'); return; }
       } else {
-        // Safari / older browsers: use a video element
-        const video = document.createElement('video');
-        video.srcObject = new MediaStream([videoTrack]);
-        video.muted = true;
-        await video.play();
-        await new Promise(res => { video.onloadeddata = res; setTimeout(res, 2000); });
-        const canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth || 1280; canvas.height = video.videoHeight || 720;
-        canvas.getContext('2d').drawImage(video, 0, 0);
-        video.srcObject = null;
-        display.getTracks().forEach(t => t.stop());
-        blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+        // No active share: ask the user to pick a window/tab
+        let display;
+        try {
+          display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+        } catch (e) {
+          toast('Screen share cancelled', 'info');
+          return;
+        }
+        const videoTrack = display.getVideoTracks()[0];
+        if (typeof ImageCapture !== 'undefined') {
+          try {
+            const ic = new ImageCapture(videoTrack);
+            const bitmap = await ic.grabFrame();
+            const canvas = document.createElement('canvas');
+            canvas.width = bitmap.width; canvas.height = bitmap.height;
+            canvas.getContext('2d').drawImage(bitmap, 0, 0);
+            blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+          } finally {
+            display.getTracks().forEach(t => t.stop());
+          }
+        } else {
+          // Fallback: video element (Safari / older browsers)
+          const video = document.createElement('video');
+          video.srcObject = new MediaStream([videoTrack]);
+          video.muted = true;
+          await video.play();
+          await new Promise(res => { video.onloadeddata = res; setTimeout(res, 2000); });
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth || 1280; canvas.height = video.videoHeight || 720;
+          canvas.getContext('2d').drawImage(video, 0, 0);
+          video.srcObject = null;
+          display.getTracks().forEach(t => t.stop());
+          blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+        }
       }
 
       const form = new FormData();
@@ -5573,6 +5571,25 @@ if (SESSION_TYPE === 'meeting') {
       document.getElementById('calRefreshBtn').style.display = '';
     }
   })();
+
+  // Bridge for Their Voice scanner (which lives outside this block's scope) to add participants
+  window._tvImportParticipants = async function(names) {
+    let added = 0;
+    for (const name of names) {
+      if (participants.find(p => p.name.toLowerCase() === name.toLowerCase())) continue;
+      try {
+        const r = await fetch(`/api/session/${SESSION_ID}/participants/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+          body: JSON.stringify({ name: name.trim() }),
+        });
+        const d = await r.json();
+        if (d.id) { participants.push({ id: d.id, name: d.name, role: d.role, color: d.color }); added++; }
+      } catch (_) {}
+    }
+    if (added) renderParticipants();
+    return added;
+  };
 
   loadParticipants();
   loadCrossSessionCtx();
