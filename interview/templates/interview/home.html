@@ -32,6 +32,11 @@
   cursor: pointer; border: none; color: var(--text2); background: transparent; font-family: inherit;
 }
 .filter-tab.active { color: var(--text); background: var(--bg2); box-shadow: var(--shadow-sm); }
+/* Folders: one row that scrolls sideways, however many there are */
+.folder-tabs { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.folder-tabs::-webkit-scrollbar { display: none; }
+.folder-tabs .filter-tab { flex: 0 0 auto; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+.folder-tabs .filter-tab .ic { width: 14px; height: 14px; }
 .filter-tab:hover:not(.active) { color: var(--text); }
 
 .view-toggle { display: flex; gap: 2px; margin-left: auto; background: var(--bg3); border-radius: var(--radius); padding: 3px; }
@@ -162,6 +167,9 @@ body.os-mac #dlMacBtn small, body.os-win #dlWinBtn small { color: var(--on-brand
   .dash-rail { position: static; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); align-items: start; }
 }
 @media (max-width: 720px) {
+  /* Table view on a phone: the action column stays in reach while the rest scrolls */
+  .sessions-table th:last-child, .sessions-table td:last-child { position: sticky; right: 0; background: var(--bg2); box-shadow: -10px 0 10px -10px rgb(var(--accent-rgb) / 0.35); padding-left: 10px; padding-right: 10px; }
+  .sessions-table th, .sessions-table td { padding-left: 12px; padding-right: 12px; }
   .dash-rail { grid-template-columns: 1fr; }
   .page-header h1 { font-size: 26px; }
   .search-wrap { max-width: none; flex-basis: 100%; }
@@ -195,11 +203,11 @@ body.os-mac #dlMacBtn small, body.os-win #dlWinBtn small { color: var(--on-brand
           <button type="button" class="filter-tab" data-filter="ended" onclick="setFilter('ended',this)">Ended</button>
         </div>
         {% if folders %}
-        <div class="filter-tabs" role="group" aria-label="Filter by folder" style="margin-top:0">
-          <button type="button" class="filter-tab active" data-folder-filter="all" onclick="setFolderFilter('all',this)">📂 All folders</button>
+        <div class="filter-tabs folder-tabs" role="group" aria-label="Filter by folder" style="margin-top:0">
+          <button type="button" class="filter-tab active" data-folder-filter="all" onclick="setFolderFilter('all',this)">All folders</button>
           <button type="button" class="filter-tab" data-folder-filter="" onclick="setFolderFilter('',this)">Unfiled</button>
           {% for f in folders %}
-          <button type="button" class="filter-tab" data-folder-filter="{{ f.id }}" onclick="setFolderFilter('{{ f.id }}',this)">📁 {{ f.name }}</button>
+          <button type="button" class="filter-tab" data-folder-filter="{{ f.id }}" onclick="setFolderFilter('{{ f.id }}',this)">{% include "interview/_icon.html" with name="folder" %} {{ f.name }}</button>
           {% endfor %}
         </div>
         {% endif %}

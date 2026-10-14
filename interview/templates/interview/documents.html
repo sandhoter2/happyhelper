@@ -1,5 +1,5 @@
 {% extends "interview/base.html" %}
-{% block title %}Documents — ParakeetAI{% endblock %}
+{% block title %}Documents{% endblock %}
 
 {% block content %}
 <style>
@@ -10,15 +10,15 @@
   .doc-header-actions { display: flex; gap: 8px; flex-shrink: 0; }
   .usage-bar-wrap { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px 20px; margin-bottom: 24px; display: flex; gap: 24px; flex-wrap: wrap; }
   .usage-item { flex: 1; min-width: 140px; }
-  .usage-label { font-size: 12px; color: var(--text3); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+  .usage-label { font-size: 12.5px; color: var(--text2); font-weight: 600; margin-bottom: 4px; }
   .usage-value { font-size: 20px; font-weight: 700; }
   .usage-max { font-size: 13px; color: var(--text3); }
   .progress { height: 6px; border-radius: 99px; background: var(--bg3); margin-top: 6px; overflow: hidden; }
   .progress-fill { height: 100%; border-radius: 99px; background: var(--brand); transition: width .3s; }
-  .progress-fill.warn { background: #f59e0b; }
-  .progress-fill.danger { background: #ef4444; }
+  .progress-fill.warn { background: var(--yellow); }
+  .progress-fill.danger { background: var(--red); }
   .upload-zone { border: 2px dashed var(--border); border-radius: var(--radius-lg); padding: 36px 24px; text-align: center; background: var(--bg2); cursor: pointer; transition: border-color .2s, background .2s; margin-bottom: 24px; }
-  .upload-zone.drag-over { border-color: var(--brand); background: rgb(var(--brand-rgb, 99 102 241) / .06); }
+  .upload-zone.drag-over { border-color: var(--brand); background: rgb(var(--accent-rgb) / .07); }
   .upload-zone-icon { font-size: 36px; margin-bottom: 10px; }
   .upload-zone-text { font-weight: 600; margin-bottom: 4px; }
   .upload-zone-sub { font-size: 13px; color: var(--text3); }
@@ -29,22 +29,22 @@
   .folder-heading-icon { font-size: 16px; }
   .folder-heading-name { font-weight: 700; font-size: 15px; flex: 1; }
   .folder-heading-index { font-size: 12px; color: var(--text3); background: var(--bg3); padding: 2px 8px; border-radius: 99px; }
-  .folder-heading-badge { font-size: 11px; color: var(--brand); background: rgb(var(--brand-rgb,99 102 241)/.12); padding: 2px 7px; border-radius: 99px; }
+  .folder-heading-badge { font-size: 12px; color: var(--text2); background: var(--bg3); padding: 2px 8px; border-radius: 99px; }
   .doc-list { display: flex; flex-direction: column; gap: 8px; }
   .doc-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 12px 16px; display: flex; align-items: center; gap: 12px; }
   .doc-icon { font-size: 22px; flex-shrink: 0; }
   .doc-info { flex: 1; min-width: 0; }
   .doc-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .doc-meta { font-size: 12px; color: var(--text3); margin-top: 2px; }
-  .doc-folder-tag { font-size: 11px; background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; margin-left: 4px; color: var(--text3); }
+  .doc-folder-tag { font-size: 12px; background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; margin-left: 4px; color: var(--text3); }
   .doc-status { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 99px; }
-  .doc-status.ready { background: rgb(16 185 129 / .12); color: #10b981; }
-  .doc-status.processing { background: rgb(245 158 11 / .12); color: #f59e0b; }
-  .doc-status.pending { background: rgb(148 163 184 / .12); color: var(--text3); }
-  .doc-status.error { background: rgb(239 68 68 / .12); color: #ef4444; }
-  .cloud-badge { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 99px; margin-left: 5px; }
-  .cloud-badge.synced { background: rgb(99 102 241 / .15); color: var(--brand); }
-  .cloud-badge.pending { background: rgb(148 163 184 / .1); color: var(--text3); }
+  .doc-status.ready { background: rgb(var(--green-rgb) / .13); color: var(--green); }
+  .doc-status.processing { background: rgb(var(--yellow-rgb) / .13); color: var(--yellow); }
+  .doc-status.pending { background: var(--bg3); color: var(--text2); }
+  .doc-status.error { background: rgb(var(--red-rgb) / .11); color: var(--red); }
+  .cloud-badge { font-size: 12px; font-weight: 600; padding: 1px 7px; border-radius: 99px; margin-left: 5px; white-space: nowrap; }
+  .cloud-badge.synced { background: rgb(var(--blue-rgb) / .13); color: var(--blue); }
+  .cloud-badge.pending { background: var(--bg3); color: var(--text2); }
   .doc-actions { display: flex; gap: 4px; flex-shrink: 0; }
   .empty-state { text-align: center; color: var(--text3); padding: 48px 0; }
   .empty-state-icon { font-size: 40px; margin-bottom: 12px; }
@@ -54,14 +54,33 @@
   .upload-status-text { font-size: 13px; color: var(--text2); }
   /* Folder creation modal */
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 1000; display: flex; align-items: center; justify-content: center; }
-  .modal-box { background: var(--bg1); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 28px 28px 24px; width: 100%; max-width: 400px; box-shadow: 0 24px 60px rgba(0,0,0,.3); }
+  .modal-box { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 28px 28px 24px; width: 100%; max-width: 400px; box-shadow: 0 24px 60px rgba(0,0,0,.3); }
   .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 18px; }
   .modal-box label { display: block; font-size: 13px; font-weight: 600; color: var(--text2); margin-bottom: 6px; }
   .modal-box input[type=text] { width: 100%; box-sizing: border-box; }
   .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+  /* The shared dialog styles keep an overlay hidden until it is opened; this page opens its dialog by display */
+  #folderModal { opacity: 1; pointer-events: auto; padding: 16px; }
+  .doc-status { white-space: nowrap; flex-shrink: 0; }
+  .move-dropdown-item:hover { background: var(--bg3) !important; }
+  @media (max-width: 640px) {
+    .doc-page { padding: 24px 16px 48px; }
+    .doc-header-left h1 { font-size: 26px; }
+    .usage-bar-wrap { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 14px; }
+    .usage-item { min-width: 0; }
+    .usage-value { font-size: 17px; }
+    .usage-max { display: block; font-size: 12px; }
+    .upload-zone { padding: 24px 16px; }
+    .upload-zone-controls { flex-wrap: wrap; }
+    .doc-card { flex-wrap: wrap; row-gap: 8px; padding: 12px; }
+    .doc-info { flex: 1 1 calc(100% - 40px); }
+    .doc-name { white-space: normal; overflow-wrap: anywhere; }
+    .doc-actions { margin-left: auto; }
+    .doc-actions .btn { min-width: 40px; min-height: 40px; justify-content: center; }
+  }
   /* Move dropdown */
   .move-dropdown { position: relative; }
-  .move-dropdown-menu { position: absolute; right: 0; top: calc(100% + 4px); background: var(--bg1); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: 0 8px 24px rgba(0,0,0,.2); z-index: 100; min-width: 180px; padding: 4px 0; }
+  .move-dropdown-menu { position: absolute; right: 0; top: calc(100% + 4px); background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 8px 24px rgba(0,0,0,.2); z-index: 100; min-width: 180px; padding: 4px 0; }
   .move-dropdown-item { padding: 8px 14px; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
   .move-dropdown-item:hover { background: var(--bg2); }
   .move-dropdown-item.active { color: var(--brand); }
@@ -74,7 +93,7 @@
       <p>Upload PDFs, Word docs, and code files. Organise into folders for LlamaIndex-powered retrieval. Attach documents to sessions for AI context.</p>
     </div>
     <div class="doc-header-actions">
-      <button class="btn btn-secondary btn-sm" id="newFolderBtn">📁 New Folder</button>
+      <button class="btn btn-secondary btn-sm" id="newFolderBtn">{% include "interview/_icon.html" with name="folder" %} New folder</button>
     </div>
   </div>
 
@@ -110,7 +129,7 @@
     <div class="upload-zone-sub">PDF, DOCX, XLSX, TXT, Python, JavaScript, TypeScript, and more</div>
     <div class="upload-zone-controls" onclick.stop>
       <label style="font-size:13px;color:var(--text2);font-weight:600;margin:0">Upload to folder:</label>
-      <select id="uploadFolderSelect" class="form-control" style="width:auto;min-width:160px;font-size:13px;" onclick="event.stopPropagation()">
+      <select id="uploadFolderSelect" class="form-control" aria-label="Upload to folder" style="width:auto;min-width:160px;font-size:13px;" onclick="event.stopPropagation()">
         <option value="">None (unfiled)</option>
       </select>
     </div>
@@ -129,7 +148,7 @@
 <!-- New Folder Modal -->
 <div class="modal-overlay" id="folderModal" style="display:none">
   <div class="modal-box">
-    <div class="modal-title">Create Folder</div>
+    <div class="modal-title">Create a folder</div>
     <label for="folderNameInput">Folder name</label>
     <input type="text" id="folderNameInput" class="form-control" placeholder="e.g. Interview Prep" autocomplete="off" maxlength="255">
     <div class="modal-actions">

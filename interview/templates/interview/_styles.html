@@ -375,6 +375,22 @@ select.form-control option { background: var(--bg2); color: var(--text); }
   .pub-footer-bottom { padding: 0 16px 28px; }
 }
 
+/* A dialog taller than the screen scrolls inside itself */
+.modal { max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow-x: hidden; overflow-y: auto; }
+@media (max-width: 520px) { .modal { padding: 20px; width: calc(100% - 24px); } }
+
+/* Phones and tablets: fields at 16px, the size below which iOS Safari zooms the page when one is focused */
+@media (max-width: 720px), (pointer: coarse) {
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]), select, textarea { font-size: 16px !important; }
+}
+
+/* A table wider than its box: a soft edge on the side that has more to show */
+.scroll-cue { background:
+    linear-gradient(to right, var(--bg2) 30%, transparent) left center / 28px 100% no-repeat local,
+    linear-gradient(to left, var(--bg2) 30%, transparent) right center / 28px 100% no-repeat local,
+    linear-gradient(to right, rgb(var(--accent-rgb) / 0.22), transparent) left center / 12px 100% no-repeat scroll,
+    linear-gradient(to left, rgb(var(--accent-rgb) / 0.22), transparent) right center / 12px 100% no-repeat scroll; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }

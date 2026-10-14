@@ -43,7 +43,19 @@
   .search-box { background: var(--bg); border: 1px solid var(--border2); border-radius: var(--radius); color: var(--text); padding: 7px 12px; font: 14px var(--sans); flex: 1; min-width: 180px; }
   [data-theme="light"] .search-box { background: var(--bg2); }
   .search-box:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring); }
-  @media (max-width: 720px) { .tpl-page { padding: 24px 16px 40px; } .form-row { grid-template-columns: 1fr; } }
+  @media (max-width: 720px) {
+    .tpl-page { padding: 24px 16px 40px; } .form-row { grid-template-columns: 1fr; }
+    #tplTable, #tplTable tbody { display: block; width: 100%; min-width: 0; }
+    #tplTable thead { position: absolute; left: -9999px; }
+    #tplTable tr { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 6px 10px; align-items: center; padding: 14px 14px; border-bottom: 1px solid var(--border); }
+    #tplTable td { display: block; padding: 0 !important; border: 0 !important; white-space: normal; min-width: 0; }
+    #tplTable td:nth-child(1) { grid-column: 1; grid-row: 1; }
+    #tplTable td:nth-child(2) { grid-column: 2; grid-row: 1; }
+    #tplTable td:nth-child(3) { grid-column: 3; grid-row: 1; }
+    #tplTable td:nth-child(4) { grid-column: 2 / 4; grid-row: 2; max-width: none !important; white-space: normal !important; overflow: visible !important; font-size: 13.5px; }
+    #tplTable td:nth-child(5) { grid-column: 2; grid-row: 3; }
+    #tplTable td:nth-child(6) { grid-column: 3; grid-row: 3; text-align: right; }
+  }
 </style>
 
 <div class="tpl-page">

@@ -4,6 +4,7 @@
 {% block content %}
 <style>
   .admin-fb { max-width: 1100px; margin: 0 auto; padding: 32px 24px 48px; }
+  @media (max-width: 720px) { .admin-fb { padding: 24px 16px 40px; } }
   .admin-fb-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
   .admin-fb-header h1 { font-size: 26px; font-weight: 800; }
   .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 12px 14px; margin-bottom: 20px; }
@@ -16,7 +17,7 @@
   .ticket-user { font-size: 13px; color: var(--text3); margin-top: 2px; }
   .ticket-body { font-size: 14px; color: var(--text2); margin-top: 10px; white-space: pre-wrap; line-height: 1.5; }
   .ticket-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
-  .cat-pill, .status-pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; }
+  .cat-pill, .status-pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
   .cat-feature  { background: rgb(var(--accent2-rgb)/.13); color: var(--accent2); border: 1px solid rgb(var(--accent2-rgb)/.3); }
   .cat-bug      { background: rgb(var(--red-rgb)/.1); color: var(--red); border: 1px solid rgb(var(--red-rgb)/.3); }
   .cat-improvement { background: rgb(255 200 61 / .14); color: var(--text); border: 1px solid rgb(255 200 61 / .4); }
@@ -71,12 +72,12 @@
     </div>
     {% endif %}
     <div class="admin-actions">
-      <select id="sel-{{ r.pk }}">
+      <select id="sel-{{ r.pk }}" aria-label="Status">
         {% for val, label in status_choices %}
         <option value="{{ val }}" {% if r.status == val %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
-      <textarea id="note-{{ r.pk }}" placeholder="Add or update admin note (optional)">{{ r.admin_note }}</textarea>
+      <textarea id="note-{{ r.pk }}" aria-label="Admin note" placeholder="Add or update admin note (optional)">{{ r.admin_note }}</textarea>
       <button class="btn btn-primary btn-sm" onclick="saveAction({{ r.pk }})">Save</button>
     </div>
   </div>
