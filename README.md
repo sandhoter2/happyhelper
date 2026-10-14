@@ -118,8 +118,11 @@ interview/                      The app
   models.py                     UserProfile, InterviewSession, TranscriptEntry, AIMessage, PromptTemplate, Task
   views.py                      Pages and the JSON API
   urls.py                       Routes
+  static/interview/
+    css/hh.css                  Design tokens and shared components (start here to restyle)
+    css/live_session.css        Live session page styles
+    js/live_session.js          Live session page script
   templates/interview/
-    _styles.html                Design tokens and shared components (start here to restyle)
     _head.html                  Fonts, favicon, theme bootstrap
     _logo.html                  The logo, as inline SVG
     _public_nav.html            Navigation for signed-out pages
@@ -160,8 +163,12 @@ The JSON API sits under `/api/`. See `interview/urls.py` for the full list.
 
 ## Design system
 
-The whole interface is styled from one file: `interview/templates/interview/_styles.html`. Every page
-includes it. Change a token there and it changes everywhere, in both themes.
+The whole interface is styled from one file: `interview/static/interview/css/hh.css`. Every page
+links it. Change a token there and it changes everywhere, in both themes.
+
+Styles and scripts are static files. In production `collectstatic` (run by `build.sh`) gives them
+hashed names, so browsers keep them for a year and download them again only when they change. Run
+locally with `DEBUG=True`; debug mode is off unless the environment turns it on.
 
 ![The sessions dashboard in the light theme](docs/screenshots/sessions.png)
 

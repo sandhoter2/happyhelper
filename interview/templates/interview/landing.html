@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -6,8 +7,8 @@
   <title>HappyHelper — a live helper for interviews and meetings</title>
   <meta name="description" content="HappyHelper listens to your interview or meeting, keeps a live transcript, and suggests what to say next, grounded in your own background.">
   {% include "interview/_head.html" %}
+  <link rel="stylesheet" href="{% static 'interview/css/hh.css' %}">
   <style>
-    {% include "interview/_styles.html" %}
 
     html { scroll-behavior: smooth; scroll-padding-top: 80px; }
     body { font-size: 16px; line-height: 1.6; overflow-x: hidden; }

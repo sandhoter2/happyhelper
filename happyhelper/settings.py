@@ -1,6 +1,7 @@
 from pathlib import Path
 import os
 import subprocess
+import sys
 from dotenv import load_dotenv
 
 try:
@@ -17,7 +18,8 @@ except Exception:
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-secret-key-change-in-production-xyz123")
-DEBUG = os.environ.get("DEBUG", "True") == "True"
+# Off unless the environment turns it on. With it on, error pages show code, settings and the URL list to anyone.
+DEBUG = os.environ.get("DEBUG", "False") == "True"
 ALLOWED_HOSTS = ["*"]
 
 # Tell Django it's behind an HTTPS reverse proxy (ngrok/nginx)
@@ -122,7 +124,15 @@ MYSQL_BACKUP_ENABLED = bool(os.environ.get("MYSQL_HOST", ""))
 
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+# STATICFILES_STORAGE was removed in Django 5.1, so the old setting here was silently ignored.
+# Hashed file names let browsers cache CSS and JS for a year; WhiteNoise serves them pre-compressed.
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+}
+# Tests render pages without running collectstatic first, so they use plain file names.
+if "test" in sys.argv:
+    STORAGES["staticfiles"]["BACKEND"] = "django.contrib.staticfiles.storage.StaticFilesStorage"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # MariaDB on Hostinger shared hosting does not have timezone tables loaded.

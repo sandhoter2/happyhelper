@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -5,8 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}HappyHelper{% endblock %}</title>
   {% include "interview/_head.html" %}
+  <link rel="stylesheet" href="{% static 'interview/css/hh.css' %}">
   <style>
-    {% include "interview/_styles.html" %}
 
     body { font-size: 15px; }
     .auth { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }

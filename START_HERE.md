@@ -74,7 +74,7 @@ The `.env` file in the repo is git-crypt encrypted — `settings.py` wraps `load
 - Dedicated pricing page (`pricing.html`) with 3 tiers (Free/$0, Pro/$19, Team/$49), feature comparison table, FAQ, annual/monthly toggle
 - `home` view updated: unauthenticated → `landing.html`, authenticated → `home.html`
 - `/pricing/` route added
-- Design system in `interview/templates/interview/_styles.html`: one set of tokens for dark and light, shared by every page. Logo in `_logo.html`, files in `docs/brand/`. See the Design system section of `README.md` before adding colours or fonts.
+- Design system in `interview/static/interview/css/hh.css`: one set of tokens for dark and light, shared by every page. Logo in `_logo.html`, files in `docs/brand/`. See the Design system section of `README.md` before adding colours or fonts.
 
 ### Pending / Next tasks 🔲
 
