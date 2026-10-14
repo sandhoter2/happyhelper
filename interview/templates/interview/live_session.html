@@ -2717,8 +2717,8 @@ function stopMic() {
     micLastCommitted = '';
   }
 
-  interimEntry.style.display = 'none';
-  interimText.textContent = 'Transcribing…';
+  if (interimEntry) interimEntry.style.display = 'none';
+  if (interimText) interimText.textContent = 'Transcribing…';
   if (interimLabel) { interimLabel.textContent = 'You'; interimLabel.style.color = 'var(--accent2)'; }
   if (transcriptPlaceholder && transcriptCount === 0) transcriptPlaceholder.style.display = 'flex';
   micBtn.classList.remove('active');
@@ -4550,12 +4550,13 @@ function triggerConvHelper() {
 function endSession() {
   if (!confirm('End this session?')) return;
   clearInterval(timerInterval);
-  stopMic();
-  stopTheirVoice();
+  try { stopMic(); } catch(e) {}
+  try { stopTheirVoice(); } catch(e) {}
   _launchConfetti();
   setTimeout(() => {
     fetch(`/api/session/${SESSION_ID}/end/`, { method: 'POST', headers: {'X-CSRFToken': getCookie('csrftoken')} })
-      .then(() => window.location.href = `/session/${SESSION_ID}/detail/`);
+      .then(() => window.location.href = `/session/${SESSION_ID}/detail/`)
+      .catch(() => window.location.href = `/session/${SESSION_ID}/detail/`);
   }, 1200);
 }
 
