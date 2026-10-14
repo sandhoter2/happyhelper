@@ -938,10 +938,11 @@ def api_scan_participants(request, session_id):
     mime = screenshot.content_type or "image/png"
     b64 = base64.b64encode(screenshot.read()).decode("utf-8")
 
+    vision_model = getattr(settings, "GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
     try:
         client = openai_lib.OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
         resp = client.chat.completions.create(
-            model="llama-3.2-11b-vision-preview",
+            model=vision_model,
             messages=[{
                 "role": "user",
                 "content": [
@@ -966,6 +967,7 @@ def api_scan_participants(request, session_id):
         speakers = [n for n in (parsed.get("speakers") or []) if isinstance(n, str) and n.strip()]
         title = str(parsed.get("title") or "").strip()
     except Exception as e:
+        logger.exception("scan_participants vision error (model=%s): %s", vision_model, e)
         return JsonResponse({"error": str(e)}, status=500)
 
     return JsonResponse({"names": names, "speakers": speakers, "title": title})
@@ -993,10 +995,11 @@ def api_extract_captions(request, session_id):
     mime = screenshot.content_type or "image/png"
     b64 = base64.b64encode(screenshot.read()).decode("utf-8")
 
+    vision_model = getattr(settings, "GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
     try:
         client = openai_lib.OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
         resp = client.chat.completions.create(
-            model="llama-3.2-11b-vision-preview",
+            model=vision_model,
             messages=[{
                 "role": "user",
                 "content": [
@@ -1019,6 +1022,7 @@ def api_extract_captions(request, session_id):
         text = str(parsed.get("text") or "").strip()
         speaker = str(parsed.get("speaker") or "").strip()
     except Exception as e:
+        logger.exception("extract_captions vision error (model=%s): %s", vision_model, e)
         return JsonResponse({"error": str(e)}, status=500)
 
     # Saving is handled by the caller via /transcript/ — this endpoint only extracts.
