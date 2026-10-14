@@ -678,6 +678,10 @@ def api_transcribe(request, session_id):
     speaker = speaker_hint if speaker_hint in (TranscriptEntry.TYPE_MIC, TranscriptEntry.TYPE_SYSTEM) else TranscriptEntry.TYPE_MIC
     speaker_name = request.POST.get("speaker_name", "")
 
+    # Callers that manage their own save (e.g. Their Voice) pass no_save=1
+    if request.POST.get("no_save") == "1":
+        return JsonResponse({"text": text, "speaker": speaker, "speaker_name": speaker_name})
+
     entry = TranscriptEntry.objects.create(
         session=session,
         content=text,
@@ -965,6 +969,60 @@ def api_scan_participants(request, session_id):
         return JsonResponse({"error": str(e)}, status=500)
 
     return JsonResponse({"names": names, "speakers": speakers, "title": title})
+
+
+@csrf_exempt
+@require_POST
+def api_extract_captions(request, session_id):
+    """Read live captions/subtitles visible in a Teams/Meet screenshot and return the text."""
+    import base64, re
+    if (r := _auth_required(request)): return r
+    ext_token = request.headers.get('X-Ext-Token', '').strip()
+    profile = _profile_for_token(ext_token) if ext_token else None
+    user = profile.user if profile else request.user
+    session = get_object_or_404(InterviewSession, id=session_id, owner=user)
+
+    screenshot = request.FILES.get("frame")
+    if not screenshot:
+        return JsonResponse({"text": "", "speaker": ""})
+
+    api_key = getattr(settings, "GROQ_API_KEY", None)
+    if not api_key:
+        return JsonResponse({"error": "GROQ_API_KEY not configured"}, status=500)
+
+    mime = screenshot.content_type or "image/png"
+    b64 = base64.b64encode(screenshot.read()).decode("utf-8")
+
+    try:
+        client = openai_lib.OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
+        resp = client.chat.completions.create(
+            model="llama-3.2-11b-vision-preview",
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
+                    {"type": "text", "text": (
+                        "This is a cropped screenshot showing the live caption/subtitle area of a Microsoft Teams, Zoom, or Google Meet call. "
+                        "Extract ONLY the caption text that appears as subtitles or live captions on screen. "
+                        "Also try to identify the speaker name if it is shown next to the caption. "
+                        "Return ONLY a JSON object with no markdown: "
+                        "{\"text\": \"the caption text here\", \"speaker\": \"speaker name or empty string\"}\n"
+                        "If no caption text is visible, return {\"text\": \"\", \"speaker\": \"\"}."
+                    )},
+                ],
+            }],
+            max_tokens=300,
+        )
+        content = resp.choices[0].message.content.strip()
+        match = re.search(r"\{.*\}", content, re.DOTALL)
+        parsed = json.loads(match.group()) if match else {}
+        text = str(parsed.get("text") or "").strip()
+        speaker = str(parsed.get("speaker") or "").strip()
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+    # Saving is handled by the caller via /transcript/ — this endpoint only extracts.
+    return JsonResponse({"text": text, "speaker": speaker})
 
 
 @csrf_exempt

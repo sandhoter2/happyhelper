@@ -1052,7 +1052,7 @@ kbd { background:var(--bg3); border:1px solid var(--border); border-radius:4px; 
   .transcript-entry { padding: 8px 10px; margin-bottom: 7px; }
 
   /* Multi-select on mobile: hide header button (too cramped), show checkboxes at low opacity */
-  #tcSelectBtn { display: none !important; }
+  #tcSelectBtn, #tcSelectAllBtn { display: none !important; }
   .entry-select-cb { opacity: 0.2 !important; }
   body.tc-select-mode .entry-select-cb,
   .transcript-entry.selected .entry-select-cb { opacity: 1 !important; }

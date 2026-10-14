@@ -1,58 +1,50 @@
 #!/usr/bin/env bash
-# build.sh — runs on every Render deployment
-# Flow: collectstatic → check DB → migrate → superuser → seed
-# Note: pip install already done in Dockerfile at build time — do NOT repeat here
+# build.sh — runs on every container start (cold start, Render wake from hibernation)
+# collectstatic is done once at Docker image build time — NOT repeated here.
 set -o errexit
 
-python manage.py collectstatic --no-input
-
-# ── 1. Check database connection ─────────────────────────────────────────────
-echo ">>> Checking database connection ..."
-python - <<'PYCHECK'
-import os, sys, django
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "happyhelper.settings")
-django.setup()
-from django.db import connection
-try:
-    connection.ensure_connection()
-    print("    DB connection OK:", connection.settings_dict["ENGINE"])
-except Exception as e:
-    print(f"    DB connection FAILED: {e}", file=sys.stderr)
-    sys.exit(1)
-PYCHECK
-
-# ── 2. Run migrations (must happen before superuser creation) ─────────────────
-echo ">>> Running migrations ..."
+# ── 1. Migrate ────────────────────────────────────────────────────────────────
+echo ">>> Migrating ..."
 python manage.py migrate --no-input
 
-# ── 3. Create or update superuser ────────────────────────────────────────────
-echo ">>> Creating/updating superuser ..."
-python - <<'PYSU'
+# ── 2. Superuser + seeds in one Python process (avoids repeated Django startup) ─
+echo ">>> Startup init ..."
+python - <<'PYINIT'
 import os, django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "happyhelper.settings")
 django.setup()
+
 from django.contrib.auth.models import User
+from interview.models import PromptTemplate, Task
+from django.core.management import call_command
+
+# ── Superuser ─────────────────────────────────────────────────────────────────
 username = os.environ.get("DJANGO_SUPERUSER_USERNAME", "superadmin")
 password = os.environ.get("DJANGO_SUPERUSER_PASSWORD", "")
-email = os.environ.get("DJANGO_SUPERUSER_EMAIL", "")
-if not password:
-    print("    DJANGO_SUPERUSER_PASSWORD not set — skipping.")
-else:
+email    = os.environ.get("DJANGO_SUPERUSER_EMAIL", "")
+if password:
     u, created = User.objects.get_or_create(username=username)
     u.set_password(password)
-    u.is_staff = True
-    u.is_superuser = True
+    u.is_staff = u.is_superuser = True
     if email:
         u.email = email
     u.save()
     print(f"    Superuser '{username}' {'created' if created else 'updated'}.")
-PYSU
 
-# ── 4. Seed default templates for any user who has none ──────────────────────
-echo ">>> Seeding missing templates ..."
-python manage.py seed_templates
+# ── Templates — 2 queries instead of N+1 ─────────────────────────────────────
+# Build set difference in Python; call seeder only when at least one user lacks templates.
+seeded_ids = set(PromptTemplate.objects.values_list('owner_id', flat=True).distinct())
+all_ids    = set(User.objects.values_list('id', flat=True))
+if all_ids - seeded_ids:
+    call_command('seed_templates', verbosity=1)
+else:
+    print("    Templates already seeded — skipping.")
 
-# ── 5. Seed initial Jira board tasks (no-op if already seeded) ───────────────
-echo ">>> Seeding task board ..."
-python manage.py seed_tasks
-echo "    Done."
+# ── Tasks — single EXISTS check ───────────────────────────────────────────────
+if Task.objects.exists():
+    print("    Tasks already seeded — skipping.")
+else:
+    call_command('seed_tasks', verbosity=1)
+
+print("    Done.")
+PYINIT

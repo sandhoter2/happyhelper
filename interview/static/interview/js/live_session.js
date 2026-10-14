@@ -643,6 +643,32 @@ function refreshMHSuggestions() {
 let micRecognition = null;
 let micLastCommitted = '';
 let micManualAccum = '';   // tracks committed finals in manual mode (not interim)
+let _tvInputLockUntil = 0; // mic interim won't overwrite question input while Their Voice holds it
+
+// Audio capture is always real-time (~3 s chunks regardless of mic mode badge).
+const _TV_CHUNK_MS = 3000;
+
+// Returns the AI submission interval in ms, driven by the mic mode badge.
+// 'manual' → never auto-trigger (returns Infinity); 'dynamic' → 8 s;
+// numeric (e.g. '30') → that many seconds, clamped 5–120 s.
+function _tvAIIntervalMs() {
+  const mode = (typeof transcribeMode !== 'undefined' ? transcribeMode : null)
+               || localStorage.getItem('transcribeMode') || '30';
+  if (mode === 'manual') return Infinity;
+  if (mode === 'dynamic') return 8000;
+  const n = parseInt(mode, 10);
+  return isNaN(n) ? 30000 : Math.min(120, Math.max(5, n)) * 1000;
+}
+
+// Text accumulated across Their Voice chunks since last AI trigger
+let _tvAccumText = '';
+let _tvLastAIMs  = 0;  // Date.now() when AI was last triggered
+
+function _tvShouldTriggerAI() {
+  const interval = _tvAIIntervalMs();
+  if (interval === Infinity) return false;
+  return (Date.now() - _tvLastAIMs) >= interval;
+}
 
 function setMicInputText(text) {
   const qi = document.getElementById('questionInput');
@@ -675,14 +701,13 @@ function makeMicRecognition() {
       else interimStr += t;
     }
 
-    // Show live interim speech in both the chat input AND the transcript panel (real-time)
+    // Show live interim speech in the transcript preview strip (not question input in manual mode)
     if (interimStr) {
-      // In manual mode, prefix accumulated finals so user sees the whole utterance so far
-      const displayText = transcribeMode === 'manual' && micManualAccum
-        ? micManualAccum + ' ' + interimStr
-        : interimStr;
-      setMicInputText(displayText);
-      interimText.textContent = displayText;
+      if (transcribeMode !== 'manual' && Date.now() > _tvInputLockUntil) {
+        // Auto/timed: mirror interim into question input (but not if Their Voice just set it)
+        setMicInputText(interimStr);
+      }
+      interimText.textContent = interimStr;
       interimEntry.style.display = 'flex';
       if (transcriptPlaceholder) transcriptPlaceholder.style.display = 'none';
       scrollTranscript();
@@ -696,24 +721,21 @@ function makeMicRecognition() {
       if (transcriptPlaceholder && transcriptCount === 0) transcriptPlaceholder.style.display = 'flex';
       if (text === micLastCommitted) return;
       micLastCommitted = text;
-      console.log('[onresult final] transcribeMode=' + transcribeMode + ' text=' + text.slice(0, 40));
 
       if (transcribeMode !== 'manual') {
-        // Timed / dynamic: save text and optionally submit to AI
-        setMicInputText(text);
+        // Auto / timed: save to transcript; only touch question input if Their Voice hasn't locked it
+        if (Date.now() > _tvInputLockUntil) setMicInputText(text);
         saveMicToServer(text);
         addTranscriptEntryUI(text, 'microphone');
         refreshMHSuggestions();
         if (autoAI && (transcribeMode !== 'dynamic' || isQuestionEnding(text))) triggerAI(text, true);
       } else {
-        // Manual: accumulate finals — do NOT save or add to transcript until committed
-        micManualAccum = (micManualAccum ? micManualAccum + ' ' : '') + text;
-        setMicInputText(micManualAccum);
-        interimText.textContent = micManualAccum;
-        if (interimLabel) { interimLabel.textContent = 'ACCUMULATING'; interimLabel.style.color = 'var(--yellow)'; }
-        interimEntry.style.display = 'flex';
-        if (transcriptPlaceholder) transcriptPlaceholder.style.display = 'none';
-        scrollTranscript();
+        // Manual mode: YOUR voice → transcript only, never auto-fills question input
+        // (Their Voice 🔊 fills the question input for the interviewer's questions)
+        saveMicToServer(text);
+        addTranscriptEntryUI(text, 'microphone');
+        refreshMHSuggestions();
+        micManualAccum = '';
       }
     }
   };
@@ -929,8 +951,8 @@ function stopMic() {
     micLastCommitted = '';
   }
 
-  interimEntry.style.display = 'none';
-  interimText.textContent = 'Transcribing…';
+  if (interimEntry) interimEntry.style.display = 'none';
+  if (interimText) interimText.textContent = 'Transcribing…';
   if (interimLabel) { interimLabel.textContent = 'You'; interimLabel.style.color = 'var(--accent2)'; }
   if (transcriptPlaceholder && transcriptCount === 0) transcriptPlaceholder.style.display = 'flex';
   micBtn.classList.remove('active');
@@ -944,6 +966,338 @@ function stopMic() {
   stopRawRecording();
 }
 
+
+// ── Their Voice ───────────────────────────────────────────────────────────────
+// Priority 1 (audio available): MediaRecorder → Whisper audio transcription.
+//   Speaker name is kept current by a vision scan every 15 s that also refreshes
+//   the participant list and identifies who is actively speaking.
+// Priority 2 (no audio track): Caption polling — reads Teams Live Captions from
+//   the bottom 20 % of the screen via vision AI every 5 s.
+// Both modes share the same participant/speaker scan loop.
+let theirVoiceStream = null;
+let theirVoiceVideo  = null;    // hidden <video> element for frame grabs
+let _tvAudioRecorder = null;
+let _tvAudioMime     = '';
+let _tvScanTimer     = null;    // 15 s full-frame: participants + active speaker
+let _tvCaptionTimer  = null;    // 5 s caption poll (audio-less mode only)
+let theirVoiceActive = false;
+let _tvActiveSpeaker = '';      // updated by vision scan
+let _lastCaptionText = '';
+let _tvMeetingTitleSet = false; // prevent repeated auto-title updates
+
+// Apply a detected meeting title to the session (replace or append).
+// mode 'replace' → overwrites the current title
+// mode 'append'  → appends " · <title>" if not already present
+async function _applyMeetingTitle(title, mode) {
+  if (!title) return;
+  const h1 = document.querySelector('.session-info h1');
+  const current = (h1 ? h1.textContent : SESSION_TITLE).trim();
+  let next;
+  if (mode === 'append') {
+    if (current.includes(title)) return; // already there
+    next = current ? current + ' · ' + title : title;
+  } else {
+    if (current === title) return; // no change
+    next = title;
+  }
+  try {
+    const r = await fetch(`/api/session/${SESSION_ID}/edit/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+      body: JSON.stringify({ title: next }),
+    });
+    if (r.ok) {
+      if (h1) h1.textContent = next;
+      document.title = next + ' — Live';
+      toast(`Meeting: "${next}"`, 'success', 4000);
+    }
+  } catch (_) {}
+}
+
+async function toggleTheirVoice() {
+  if (theirVoiceActive) { stopTheirVoice(); } else { await startTheirVoice(); }
+}
+window.toggleTheirVoice = toggleTheirVoice;
+
+async function startTheirVoice() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+    toast('Screen capture not supported. Use Chrome or Edge.', 'error', 6000);
+    return;
+  }
+
+  toast(
+    'Share the Teams tab and tick "Share tab audio" for voice capture. ' +
+    'Or enable Teams Live Captions (... → Language → Turn on live captions) for caption mode.',
+    'info', 11000
+  );
+
+  try {
+    theirVoiceStream = await navigator.mediaDevices.getDisplayMedia({
+      video: true,
+      audio: { echoCancellation: false, noiseSuppression: false, sampleRate: 16000 }
+    });
+  } catch (err) {
+    const cancelled = ['NotAllowedError','AbortError','NotFoundError'].includes(err.name);
+    toast(cancelled ? 'Screen share cancelled.' : 'Screen share failed: ' + err.message,
+          cancelled ? 'info' : 'error', cancelled ? 3000 : 7000);
+    return;
+  }
+
+  // ── Hidden video element for frame grabs ───────────────────────────────────
+  theirVoiceVideo = document.createElement('video');
+  theirVoiceVideo.srcObject = theirVoiceStream;
+  theirVoiceVideo.muted = true;
+  theirVoiceVideo.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px';
+  document.body.appendChild(theirVoiceVideo);
+  await theirVoiceVideo.play();
+  await new Promise(res => { theirVoiceVideo.onloadeddata = res; setTimeout(res, 1500); });
+
+  theirVoiceActive = true;
+  _tvActiveSpeaker = '';
+  _lastCaptionText = '';
+  _tvLastAIMs = Date.now(); // prevent immediate AI fire on first chunk
+  const btn = document.getElementById('theirVoiceBtn');
+  if (btn) { btn.classList.add('active'); btn.setAttribute('aria-pressed', 'true'); btn.title = 'Stop speaker capture'; }
+
+  // Stop cleanly if user ends share from browser toolbar
+  theirVoiceStream.getVideoTracks()[0].addEventListener('ended', () => stopTheirVoice());
+
+  // ── Participant + speaker scan — runs every 15 s (immediate first run) ──────
+  const _runScan = async () => {
+    if (!theirVoiceActive) return;
+    let blob = await _captureFrame(1.0);
+    if (!blob) return;
+    // Downscale if very large to stay under Django's upload limit
+    if (blob.size > 900 * 1024) {
+      const img = await createImageBitmap(blob);
+      const scale = Math.min(1, 1280 / img.width);
+      const c2 = document.createElement('canvas');
+      c2.width = Math.round(img.width * scale); c2.height = Math.round(img.height * scale);
+      c2.getContext('2d').drawImage(img, 0, 0, c2.width, c2.height);
+      blob = await new Promise(res => c2.toBlob(res, 'image/jpeg', 0.75)) || blob;
+    }
+    const form = new FormData();
+    form.append('screenshot', blob, 'screen.jpg');
+    try {
+      const r = await fetch(`/api/session/${SESSION_ID}/scan-participants/`, {
+        method: 'POST', headers: { 'X-CSRFToken': getCookie('csrftoken') }, body: form
+      });
+      const data = await r.json();
+      // Update active speaker (first in speakers array)
+      if (data.speakers && data.speakers.length) {
+        _tvActiveSpeaker = data.speakers[0].trim();
+      }
+      // Add any newly visible participants via the meeting-panel bridge
+      const allNames = [...new Set([...(data.names||[]), ...(data.speakers||[])])].filter(n => n && n.trim());
+      if (allNames.length && typeof window._tvImportParticipants === 'function') {
+        const added = await window._tvImportParticipants(allNames);
+        if (added) toast(`Found ${added} participant${added > 1 ? 's' : ''} from your screen.`, 'success', 4000);
+      }
+      // Reflect active speaker in status bar
+      if (_tvActiveSpeaker) setStatus(`🎤 ${_tvActiveSpeaker} is speaking`);
+      // Auto-set meeting title on first scan only (replace); manual scans can append.
+      // Set flag AFTER _applyMeetingTitle so a failed fetch allows a retry.
+      if (!_tvMeetingTitleSet && data.title && data.title.trim()) {
+        await _applyMeetingTitle(data.title.trim(), 'replace');
+        _tvMeetingTitleSet = true;
+      }
+    } catch (_) {}
+  };
+  _runScan(); // immediate
+  _tvScanTimer = setInterval(_runScan, 15000);
+
+  // ── Choose mode based on whether audio was shared ───────────────────────────
+  const audioTracks = theirVoiceStream.getAudioTracks().filter(t => t.readyState === 'live');
+  if (audioTracks.length) {
+    const _aiSec = _tvAIIntervalMs() === Infinity ? 'manual' : Math.round(_tvAIIntervalMs()/1000) + ' s';
+    toast(`🎤 Audio capture active — AI submits every ${_aiSec} (matches your mic mode setting).`, 'success', 6000);
+    _startTVAudio(audioTracks);
+  } else {
+    toast('No audio shared — caption mode active. Turn on Teams Live Captions (... → Language) for best results.', 'warn', 9000);
+    _startTVCaptions();
+  }
+}
+
+// ── Single save path for all Their Voice entries ─────────────────────────────
+// Always saves to DB via /transcript/ — completely independent of mic
+// transcribeMode (manual / auto / 5s / 30s). Never skips.
+async function _tvSaveEntry(text, speakerName) {
+  if (!text || !theirVoiceActive) return;
+  // Update live transcript UI immediately (every chunk)
+  addTranscriptEntryUI(text, 'system', speakerName || 'Interviewer');
+
+  // Accumulate text across chunks for AI context
+  _tvAccumText = _tvAccumText ? _tvAccumText + ' ' + text : text;
+
+  // Always show accumulated text in question input so user sees what's building up
+  _tvInputLockUntil = Date.now() + 10000;
+  setMicInputText(_tvAccumText);
+  const _qi = document.getElementById('questionInput');
+  if (_qi) _qi.dispatchEvent(new Event('input')); // notify any watchers after the write
+
+  // Trigger AI only when the mic-mode-badge interval has elapsed
+  if (typeof autoAI !== 'undefined' && autoAI && typeof triggerAI === 'function' && _tvShouldTriggerAI()) {
+    triggerAI(_tvAccumText, true);
+    _tvLastAIMs  = Date.now();
+    _tvAccumText = '';  // reset accumulation after each AI submission
+  }
+
+  // Persist to DB — irrespective of any mic mode setting
+  try {
+    await fetch(`/api/session/${SESSION_ID}/transcript/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+      body: JSON.stringify({ transcripts: [{ content: text, type: 'system', speaker_name: speakerName || '' }] }),
+    });
+  } catch (_) {}
+}
+
+// ── Audio mode (primary) ──────────────────────────────────────────────────────
+// Uses explicit stop→transcribe→restart loop instead of timeslice, because
+// MediaRecorder.start(timeslice) for captured tab audio silently stops in
+// Chrome after the first event on some streams. Each 6 s cycle:
+//   1. Start a fresh recorder
+//   2. After 6 s call .stop()
+//   3. onstop: collect blob, POST to Whisper, save entry, schedule next cycle
+let _tvAudioLoopTimer = null;
+
+function _startTVAudio(audioTracks) {
+  if (!theirVoiceActive || !audioTracks.length) return;
+  _tvAudioMime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
+  setStatus('🎙 Capturing Teams audio…');
+  _tvAudioLoop();
+}
+
+function _tvAudioLoop() {
+  if (!theirVoiceActive) return;
+
+  // Grab the freshest live audio tracks each cycle
+  const liveTracks = theirVoiceStream ? theirVoiceStream.getAudioTracks().filter(t => t.readyState === 'live') : [];
+  if (!liveTracks.length) {
+    setStatus('📝 Audio track ended — caption mode');
+    _startTVCaptions();
+    return;
+  }
+
+  const audioStream = new MediaStream(liveTracks);
+  let recorder;
+  try { recorder = new MediaRecorder(audioStream, { mimeType: _tvAudioMime }); }
+  catch (e) { _startTVCaptions(); return; }
+
+  _tvAudioRecorder = recorder;
+  const chunks = [];
+  recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+
+  recorder.onerror = () => {
+    if (theirVoiceActive) setTimeout(_tvAudioLoop, 500);
+  };
+
+  recorder.onstop = () => {
+    if (!theirVoiceActive) return;
+    // Pipeline: start next recording cycle IMMEDIATELY so there is no dead-air gap.
+    // Transcription of this chunk runs in parallel in the background.
+    _tvAudioLoop();
+
+    const blob = new Blob(chunks, { type: _tvAudioMime });
+    if (blob.size < 100) return;
+    (async () => {
+      const ext = _tvAudioMime.includes('ogg') ? 'ogg' : 'webm';
+      const speakerName = _tvActiveSpeaker || 'Interviewer';
+      const form = new FormData();
+      form.append('audio', blob, `speaker.${ext}`);
+      form.append('speaker', 'system');
+      form.append('no_save', '1');
+      try {
+        const res = await fetch(`/api/session/${SESSION_ID}/transcribe/`, {
+          method: 'POST', headers: { 'X-CSRFToken': getCookie('csrftoken') }, body: form
+        });
+        const d = await res.json();
+        if (d.text && d.text.trim()) await _tvSaveEntry(d.text.trim(), speakerName);
+      } catch (_) {}
+    })();
+  };
+
+  recorder.start();
+  // Always capture in real-time short chunks; AI submission interval is separate
+  _tvAudioLoopTimer = setTimeout(() => {
+    if (recorder.state === 'recording') recorder.stop();
+  }, _TV_CHUNK_MS);
+}
+
+// ── Caption mode (no-audio fallback) ─────────────────────────────────────────
+// _lastCaptionText  = last text that was actually SAVED (for dedup)
+// _lastSeenCaption  = latest text seen this poll (may be mid-sentence)
+let _lastSeenCaption = '';
+function _startTVCaptions() {
+  if (_tvCaptionTimer) return; // already running
+  setStatus('📝 Reading Teams captions…');
+  _tvCaptionTimer = setInterval(async () => {
+    if (!theirVoiceActive) return;
+    const blob = await _captureFrame(0.22);
+    if (!blob) return;
+    const form = new FormData();
+    form.append('frame', blob, 'caption.jpg');
+    try {
+      const res = await fetch(`/api/session/${SESSION_ID}/extract-captions/`, {
+        method: 'POST', headers: { 'X-CSRFToken': getCookie('csrftoken') }, body: form
+      });
+      const data = await res.json();
+      const text = (data.text || '').trim();
+      if (!text) return;
+      _lastSeenCaption = text;
+      // Skip exact duplicate
+      if (text === _lastCaptionText) return;
+      // New sentence / speaker → save immediately
+      const isContinuation = _lastCaptionText && text.startsWith(_lastCaptionText.slice(0, 30));
+      if (!isContinuation) {
+        _lastCaptionText = text;
+        await _tvSaveEntry(text, data.speaker || _tvActiveSpeaker || 'Interviewer');
+        return;
+      }
+      // Same sentence still growing: save only once it has grown by ≥ 35 chars
+      if (text.length - _lastCaptionText.length >= 35) {
+        _lastCaptionText = text;
+        await _tvSaveEntry(text, data.speaker || _tvActiveSpeaker || 'Interviewer');
+      }
+    } catch (_) {}
+  }, 4000);
+}
+
+// Capture a frame from the hidden video element as a JPEG blob.
+// heightFraction=1.0 → full frame; 0.22 → bottom 22 % (caption strip)
+async function _captureFrame(heightFraction) {
+  if (!theirVoiceVideo || !theirVoiceActive) return null;
+  const vw = theirVoiceVideo.videoWidth  || 1280;
+  const vh = theirVoiceVideo.videoHeight || 720;
+  const cropH = Math.round(vh * heightFraction);
+  const cropY = heightFraction < 1.0 ? vh - cropH : 0;
+  const canvas = document.createElement('canvas');
+  canvas.width = vw; canvas.height = cropH;
+  try {
+    canvas.getContext('2d').drawImage(theirVoiceVideo, 0, cropY, vw, cropH, 0, 0, vw, cropH);
+    return await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.82));
+  } catch (_) { return null; }
+}
+
+function stopTheirVoice() {
+  theirVoiceActive = false;
+  if (_tvAudioLoopTimer) { clearTimeout(_tvAudioLoopTimer); _tvAudioLoopTimer = null; }
+  if (_tvAudioRecorder && _tvAudioRecorder.state !== 'inactive') {
+    try { _tvAudioRecorder.stop(); } catch (_) {}
+  }
+  _tvAudioRecorder = null;
+  if (_tvScanTimer)    { clearInterval(_tvScanTimer);    _tvScanTimer    = null; }
+  if (_tvCaptionTimer) { clearInterval(_tvCaptionTimer); _tvCaptionTimer = null; }
+  if (theirVoiceVideo) { theirVoiceVideo.srcObject = null; theirVoiceVideo.remove(); theirVoiceVideo = null; }
+  if (theirVoiceStream) { theirVoiceStream.getTracks().forEach(t => t.stop()); theirVoiceStream = null; }
+  const btn = document.getElementById('theirVoiceBtn');
+  if (btn) { btn.classList.remove('active'); btn.setAttribute('aria-pressed', 'false'); btn.title = 'Capture Teams voice (🔊)'; }
+  setStatus('Speaker capture off');
+  _tvActiveSpeaker = ''; _lastCaptionText = ''; _lastSeenCaption = '';
+  _tvAccumText = ''; _tvLastAIMs = 0; _tvInputLockUntil = 0;
+  // _tvMeetingTitleSet intentionally NOT reset here: if a title was ever set
+  // (auto or manual), subsequent manual scans should append, not replace.
+}
 
 async function sendAudioChunk(blob, mimeType, speaker = 'microphone') {
   if (blob.size < 500) return;
@@ -1333,6 +1687,15 @@ function clearSelection() {
   _tcSelected.clear();
   _updateMultiBar();
 }
+
+function selectAllTranscript() {
+  if (!_tcSelectMode) toggleSelectMode();
+  document.querySelectorAll('#transcriptPanel .transcript-entry').forEach(e => {
+    if (!_tcSelected.has(e)) { _tcSelected.add(e); e.classList.add('selected'); }
+  });
+  _updateMultiBar();
+}
+window.selectAllTranscript = selectAllTranscript;
 
 function sendSelectedToAI() {
   if (!_tcSelected.size) return;
@@ -2095,6 +2458,8 @@ function triggerAI(question, fromVoice) {
   if (fInput) fInput.value = '';
   micManualAccum = '';
   micLastCommitted = '';
+  // Reset Their Voice accumulation so the next capture starts fresh
+  if (typeof _tvAccumText !== 'undefined') { _tvAccumText = ''; _tvLastAIMs = Date.now(); }
   // Clear the interim transcript entry so the panel looks clean after submit
   interimEntry.style.display = 'none';
   interimText.textContent = 'Transcribing…';
@@ -2420,11 +2785,13 @@ function triggerConvHelper() {
 function endSession() {
   if (!confirm('End this session?')) return;
   clearInterval(timerInterval);
-  stopMic();
+  try { stopMic(); } catch(e) {}
+  try { stopTheirVoice(); } catch(e) {}
   _launchConfetti();
   setTimeout(() => {
     fetch(`/api/session/${SESSION_ID}/end/`, { method: 'POST', headers: {'X-CSRFToken': getCookie('csrftoken')} })
-      .then(() => window.location.href = `/session/${SESSION_ID}/detail/`);
+      .then(() => window.location.href = `/session/${SESSION_ID}/detail/`)
+      .catch(() => window.location.href = `/session/${SESSION_ID}/detail/`);
   }, 1200);
 }
 
@@ -2922,7 +3289,7 @@ async function popOutAI() {
 // Keyboard shortcuts
 document.addEventListener('keydown', e => {
   const tag = document.activeElement.tagName;
-  const typing = ['INPUT','TEXTAREA'].includes(tag);
+  const typing = ['INPUT','TEXTAREA','SELECT'].includes(tag) || document.activeElement.isContentEditable;
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); if (!isStreaming) triggerAI(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === 'f') { e.preventDefault(); toggleTranscriptSearch(); return; }
   if (typing) return;
@@ -2996,7 +3363,7 @@ if (SESSION_TYPE === 'meeting') {
     renderParticipants();
   }
 
-  async function addParticipant() {
+  window.addParticipant = async function addParticipant() {
     const nameEl = document.getElementById('newParticipantName');
     const name = nameEl.value.trim();
     if (!name) { nameEl.focus(); toast('Enter a participant name first', 'info'); return; }
@@ -3019,108 +3386,129 @@ if (SESSION_TYPE === 'meeting') {
     } catch (e) {
       toast('Network error: ' + e.message, 'error');
     }
-  }
+  };
 
-  async function scanTeamsParticipants() {
+  window.scanTeamsParticipants = async function scanTeamsParticipants() {
     const btn = document.getElementById('scanScreenBtn');
-    const orig = btn.innerHTML;
-    btn.textContent = 'Scanning…';
-    btn.disabled = true;
+    const orig = btn ? btn.innerHTML : '';
+    if (btn) { btn.textContent = 'Scanning…'; btn.disabled = true; }
     try {
-      // Request screen share (video required for the frame, audio not needed)
-      let display;
-      try {
-        display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
-      } catch (e) {
-        toast('Screen share cancelled', 'info');
-        return;
-      }
+      let blob = null;
 
-      const videoTrack = display.getVideoTracks()[0];
-      // Capture a single frame via ImageCapture if available, else fallback to video element
-      let blob;
-      if (typeof ImageCapture !== 'undefined') {
-        const ic = new ImageCapture(videoTrack);
-        const bitmap = await ic.grabFrame();
-        display.getTracks().forEach(t => t.stop());
-        const canvas = document.createElement('canvas');
-        canvas.width = bitmap.width; canvas.height = bitmap.height;
-        canvas.getContext('2d').drawImage(bitmap, 0, 0);
-        blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+      // Path 1: Their Voice is active — reuse the existing hidden video element
+      if (typeof theirVoiceActive !== 'undefined' && theirVoiceActive && typeof _captureFrame === 'function') {
+        blob = await _captureFrame(1.0);
+        if (!blob) {
+          toast('Video frame not ready — wait a moment and try again', 'warn');
+          return;
+        }
       } else {
-        // Safari / older browsers: use a video element
-        const video = document.createElement('video');
-        video.srcObject = new MediaStream([videoTrack]);
-        video.muted = true;
-        await video.play();
-        await new Promise(res => { video.onloadeddata = res; setTimeout(res, 2000); });
-        const canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth || 1280; canvas.height = video.videoHeight || 720;
-        canvas.getContext('2d').drawImage(video, 0, 0);
-        video.srcObject = null;
-        display.getTracks().forEach(t => t.stop());
-        blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+        // Path 2: No active share — ask the user to pick a window/tab now
+        toast('Select your Teams/Meet window when the share dialog opens', 'info', 5000);
+        let display;
+        try {
+          display = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 1 }, audio: false });
+        } catch (e) {
+          toast(e.name === 'NotAllowedError' ? 'Screen share cancelled' : 'Could not share screen: ' + e.message,
+                'info', 3000);
+          return;
+        }
+        const videoTrack = display.getVideoTracks()[0];
+        // Grab a single frame then immediately stop sharing
+        try {
+          if (typeof ImageCapture !== 'undefined') {
+            const ic = new ImageCapture(videoTrack);
+            const bitmap = await ic.grabFrame();
+            const canvas = document.createElement('canvas');
+            canvas.width = bitmap.width; canvas.height = bitmap.height;
+            canvas.getContext('2d').drawImage(bitmap, 0, 0);
+            blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.9));
+          } else {
+            // Fallback: render into a video element first
+            const video = document.createElement('video');
+            video.srcObject = new MediaStream([videoTrack]);
+            video.muted = true;
+            await video.play();
+            await new Promise(res => { video.onloadeddata = res; setTimeout(res, 1500); });
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth || 1280; canvas.height = video.videoHeight || 720;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            video.srcObject = null;
+            blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.9));
+          }
+        } finally {
+          display.getTracks().forEach(t => t.stop()); // stop share immediately after capture
+        }
+        if (!blob) { toast('Could not capture frame — try again', 'warn'); return; }
       }
 
+      // Downscale if very large (keeps upload under ~1 MB)
+      if (blob && blob.size > 900 * 1024) {
+        const img = await createImageBitmap(blob);
+        const scale = Math.min(1, 1280 / img.width);
+        const c2 = document.createElement('canvas');
+        c2.width = Math.round(img.width * scale); c2.height = Math.round(img.height * scale);
+        c2.getContext('2d').drawImage(img, 0, 0, c2.width, c2.height);
+        blob = await new Promise(res => c2.toBlob(res, 'image/jpeg', 0.75)) || blob;
+      }
+
+      // Send screenshot to Groq vision for participant extraction
       const form = new FormData();
-      form.append('screenshot', blob, 'screen.png');
+      form.append('screenshot', blob, 'screen.jpg');
       const resp = await fetch(`/api/session/${SESSION_ID}/scan-participants/`, {
         method: 'POST',
         headers: { 'X-CSRFToken': getCookie('csrftoken') },
         body: form,
       });
       const data = await resp.json();
-      if (!resp.ok) { toast(data.error || 'Scan failed', 'error'); return; }
+      if (!resp.ok) { toast(data.error || 'Scan failed — check the Groq API key', 'error'); return; }
 
-      const names = (data.names || []).filter(n => n && n.trim());
+      const names    = (data.names    || []).filter(n => n && n.trim());
       const speakers = (data.speakers || []).filter(n => n && n.trim());
       const detectedTitle = (data.title || '').trim();
-
-      // Combine names + speakers (deduplicated)
       const allNames = [...new Set([...names, ...speakers])];
-      if (!allNames.length) { toast('No participant names detected in screenshot', 'info'); return; }
 
+      if (!allNames.length && !detectedTitle) {
+        toast('Nothing detected — make sure the participant list or names are visible on screen', 'info', 5000);
+        return;
+      }
+
+      // Add any new participants
       let added = 0;
       for (const name of allNames) {
         if (participants.find(p => p.name.toLowerCase() === name.toLowerCase())) continue;
-        const r2 = await fetch(`/api/session/${SESSION_ID}/participants/`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
-          body: JSON.stringify({ name: name.trim() }),
-        });
-        const d = await r2.json();
-        if (d.id) { participants.push({ id: d.id, name: d.name, role: d.role, color: d.color }); added++; }
-      }
-      renderParticipants();
-      toast(added ? `Added ${added} participant${added > 1 ? 's' : ''} from screen` : 'Participants already in list', added ? 'success' : 'info');
-
-      // Auto-update session title if detected
-      if (detectedTitle) {
         try {
-          const tRes = await fetch(`/api/session/${SESSION_ID}/edit/`, {
+          const r2 = await fetch(`/api/session/${SESSION_ID}/participants/`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
-            body: JSON.stringify({ title: detectedTitle }),
+            body: JSON.stringify({ name: name.trim() }),
           });
-          if (tRes.ok) {
-            const titleEl = document.querySelector('.session-info h1');
-            if (titleEl) titleEl.textContent = detectedTitle;
-            toast(`Meeting title: "${detectedTitle}"`, 'info', 3000);
-          }
-        } catch(e) {}
+          const d = await r2.json();
+          if (d.id) { participants.push({ id: d.id, name: d.name, role: d.role, color: d.color }); added++; }
+        } catch (_) {}
+      }
+      if (added) renderParticipants();
+      toast(
+        added ? `Added ${added} participant${added > 1 ? 's' : ''} from screen` : 'Participants already up to date',
+        added ? 'success' : 'info'
+      );
+
+      // Update session title (replace first time, append on re-scan)
+      if (detectedTitle) {
+        const mode = _tvMeetingTitleSet ? 'append' : 'replace';
+        await _applyMeetingTitle(detectedTitle, mode); // set flag AFTER await
+        _tvMeetingTitleSet = true;
       }
 
-      // Refresh calendar if connected (calendar knows about this meeting)
-      if (calendarConnected) {
-        try { refreshCalendarEvents(); } catch(e) {}
+      if (typeof calendarConnected !== 'undefined' && calendarConnected) {
+        try { refreshCalendarEvents(); } catch (_) {}
       }
     } catch (e) {
       toast('Scan error: ' + e.message, 'error');
     } finally {
-      btn.innerHTML = orig;
-      btn.disabled = false;
+      if (btn) { btn.innerHTML = orig; btn.disabled = false; }
     }
-  }
+  };
 
   async function removeParticipant(pid) {
     await fetch(`/api/session/${SESSION_ID}/participants/${pid}/delete/`, {
@@ -3534,6 +3922,25 @@ if (SESSION_TYPE === 'meeting') {
       document.getElementById('calRefreshBtn').style.display = '';
     }
   })();
+
+  // Bridge for Their Voice scanner (which lives outside this block's scope) to add participants
+  window._tvImportParticipants = async function(names) {
+    let added = 0;
+    for (const name of names) {
+      if (participants.find(p => p.name.toLowerCase() === name.toLowerCase())) continue;
+      try {
+        const r = await fetch(`/api/session/${SESSION_ID}/participants/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+          body: JSON.stringify({ name: name.trim() }),
+        });
+        const d = await r.json();
+        if (d.id) { participants.push({ id: d.id, name: d.name, role: d.role, color: d.color }); added++; }
+      } catch (_) {}
+    }
+    if (added) renderParticipants();
+    return added;
+  };
 
   loadParticipants();
   loadCrossSessionCtx();

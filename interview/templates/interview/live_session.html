@@ -73,6 +73,7 @@
         <button class="btn btn-ghost btn-xs" onclick="copyTranscriptLive()" title="Copy the transcript" aria-label="Copy the transcript">{% include "interview/_icon.html" with name="copy" %}</button>
         <button class="btn btn-ghost btn-xs" onclick="exportSession()" title="Export session as Markdown">{% include "interview/_icon.html" with name="download" %} Export</button>
         <button class="btn btn-ghost btn-xs" onclick="clearTranscript()" title="Clear transcript" aria-label="Clear transcript">{% include "interview/_icon.html" with name="trash" %}</button>
+        <button class="btn btn-ghost btn-xs" id="tcSelectAllBtn" onclick="selectAllTranscript()" title="Select all transcript entries">{% include "interview/_icon.html" with name="select" %} All</button>
         <button class="btn btn-ghost btn-xs" id="tcSelectBtn" onclick="toggleSelectMode()" title="Select lines to ask about">{% include "interview/_icon.html" with name="select" %} Select</button>
         <span id="transcriptCount" title="Lines in the transcript" style="font-size:12px;color:var(--text3);font-family:var(--sans)">{{ transcripts.count }}</span>
         <button class="btn btn-ghost btn-xs" id="transcriptMinBtn" onclick="minimizeTranscript()" title="Hide the transcript" aria-label="Hide the transcript">{% include "interview/_icon.html" with name="collapse" %}</button>
@@ -399,6 +400,7 @@
 
 <div class="bottom-bar">
   <button class="mic-btn" id="micBtn" onclick="toggleMic()" title="Microphone (M)" aria-label="Microphone" aria-pressed="false">{% include "interview/_icon.html" with name="mic" %}</button>
+  <button class="mic-btn" id="theirVoiceBtn" onclick="toggleTheirVoice()" title="Capture Teams / speaker audio — share the Teams tab or screen when prompted" aria-label="Their voice" aria-pressed="false" style="font-size:17px;background:var(--bg2)">🔊</button>
   <span id="micModeBadge" onclick="toggleTCPanel()" title="Transcribe mode — click to change" style="font-size:12px;font-family:var(--sans);color:var(--text3);padding:2px 7px;background:var(--bg3);border-radius:6px;border:1px solid var(--border);cursor:pointer;white-space:nowrap;line-height:1.8;transition:color .2s,border-color .2s">30s</span>
 
   <!-- Conversation Insights split button + dropdown -->
