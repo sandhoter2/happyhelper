@@ -1939,6 +1939,8 @@ let rawRecorder = null;
 let rawChunkSeq = 0;
 let autoAI = true;
 let isStreaming = false;
+let _streamAbortCtrl = null;
+let _streamInterrupted = false;
 let sessionCost = 0;
 let _sessionOutputChars = 0;
 let chunkTimer = null;
@@ -2717,6 +2719,14 @@ function micNotice(msg, kind, ms) {
 
 // Coming back to the page after switching apps: listen again
 document.addEventListener('visibilitychange', () => {
+  // ── AI stream: abort on hide so the server isn't left hanging; retry on show ──
+  if (document.hidden) {
+    if (isStreaming && _streamAbortCtrl) _streamAbortCtrl.abort();
+  } else if (_streamInterrupted && lastQuestion) {
+    _streamInterrupted = false;
+    setTimeout(() => triggerAI(lastQuestion, true), 300);
+  }
+  // ── Mic reconnect ────────────────────────────────────────────────────────────
   if (document.hidden || !micActive || !micResumeOnShow) return;
   micResumeOnShow = false;
   try { if (micRecognition) { micRecognition.onend = null; micRecognition.stop(); } } catch (_) {}
@@ -4409,10 +4419,13 @@ function triggerAI(question, fromVoice) {
   _d.getElementById('copyAIBtn').style.display = 'none';
   _d.getElementById('regenBtn').style.display = 'none';
 
+  _streamAbortCtrl = new AbortController();
+  _streamInterrupted = false;
   fetch(`/api/session/${SESSION_ID}/chat/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
     body: JSON.stringify({ question: _applyTemplate(question) }),
+    signal: _streamAbortCtrl.signal,
   }).then(async (resp) => {
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
@@ -4448,7 +4461,12 @@ function triggerAI(question, fromVoice) {
       }
     }
   }).catch(err => {
-    aiAnswerText.textContent = '❌ ' + err.message;
+    if (err.name === 'AbortError') {
+      _streamInterrupted = true;
+      // Tab was hidden mid-stream — auto-retry when tab becomes visible (visibilitychange)
+    } else {
+      aiAnswerText.textContent = '❌ ' + err.message;
+    }
   }).finally(() => {
     isStreaming = false;
     // Estimate cost: output tokens ≈ chars/4, ~$0.003/1K tokens
