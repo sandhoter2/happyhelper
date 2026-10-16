@@ -72,20 +72,37 @@ def _check_session_limit(user):
 
 
 def _get_chat_client():
-    """Return (client, model, provider) — prefers OpenRouter if key is set, else Groq."""
-    if settings.OPENROUTER_API_KEY:
+    """Return (client, model, provider) — Cerebras primary, Groq fallback, OpenRouter last."""
+    if settings.CEREBRAS_API_KEY:
         client = openai_lib.OpenAI(
-            api_key=settings.OPENROUTER_API_KEY,
-            base_url="https://openrouter.ai/api/v1",
+            api_key=settings.CEREBRAS_API_KEY,
+            base_url="https://api.cerebras.ai/v1",
         )
-        return client, settings.OPENROUTER_MODEL, "openrouter"
+        return client, settings.CEREBRAS_MODEL, "cerebras"
     if settings.GROQ_API_KEY:
         client = openai_lib.OpenAI(
             api_key=settings.GROQ_API_KEY,
             base_url="https://api.groq.com/openai/v1",
         )
         return client, settings.GROQ_MODEL, "groq"
+    if settings.OPENROUTER_API_KEY:
+        client = openai_lib.OpenAI(
+            api_key=settings.OPENROUTER_API_KEY,
+            base_url="https://openrouter.ai/api/v1",
+        )
+        return client, settings.OPENROUTER_MODEL, "openrouter"
     return None, None, None
+
+
+def _get_groq_fallback_client():
+    """Return (client, model) for Groq — used when the primary provider fails."""
+    if not settings.GROQ_API_KEY:
+        return None, None
+    client = openai_lib.OpenAI(
+        api_key=settings.GROQ_API_KEY,
+        base_url="https://api.groq.com/openai/v1",
+    )
+    return client, settings.GROQ_MODEL
 
 
 def login_view(request):
@@ -581,7 +598,7 @@ def api_chat(request, session_id):
     client, model, provider = _get_chat_client()
     if not client:
         return JsonResponse(
-            {"error": "No AI key set. Add OPENROUTER_API_KEY or GROQ_API_KEY to your environment."},
+            {"error": "No AI key set. Add CEREBRAS_API_KEY or GROQ_API_KEY to your environment."},
             status=500,
         )
 
@@ -597,27 +614,48 @@ def api_chat(request, session_id):
     system_prompt = _build_system_prompt(session, document_context=doc_context)
     user_message = f"Recent conversation transcript:\n{transcript_text}\n\nQuestion/topic to address: {question}"
 
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+
+    def _run_stream(use_client, use_model):
+        """Yield (delta_text, error_str) pairs from one provider. Raises on connection error."""
+        stream = use_client.chat.completions.create(
+            model=use_model,
+            messages=messages,
+            max_tokens=600,
+            stream=True,
+        )
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
+
     def stream_sse():
         full_content = []
         yield f"data: {json.dumps({'type': 'start'})}\n\n"
+
+        active_client, active_model = client, model
         try:
-            stream = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message},
-                ],
-                max_tokens=600,
-                stream=True,
-            )
-            for chunk in stream:
-                delta = chunk.choices[0].delta.content
-                if delta:
-                    full_content.append(delta)
-                    yield f"data: {json.dumps({'type': 'text', 'text': delta})}\n\n"
-        except Exception as exc:
-            yield f"data: {json.dumps({'type': 'error', 'error': str(exc)})}\n\n"
-            return
+            for delta in _run_stream(active_client, active_model):
+                full_content.append(delta)
+                yield f"data: {json.dumps({'type': 'text', 'text': delta})}\n\n"
+        except Exception as primary_exc:
+            logger.warning("Primary provider (%s) failed: %s — trying Groq fallback", provider, primary_exc)
+            fallback_client, fallback_model = _get_groq_fallback_client()
+            if fallback_client and fallback_client is not active_client:
+                try:
+                    for delta in _run_stream(fallback_client, fallback_model):
+                        full_content.append(delta)
+                        yield f"data: {json.dumps({'type': 'text', 'text': delta})}\n\n"
+                except Exception as fallback_exc:
+                    logger.exception("Groq fallback also failed: %s", fallback_exc)
+                    yield f"data: {json.dumps({'type': 'error', 'error': str(fallback_exc)})}\n\n"
+                    return
+            else:
+                yield f"data: {json.dumps({'type': 'error', 'error': str(primary_exc)})}\n\n"
+                return
 
         saved_content = "".join(full_content)
         AIMessage.objects.create(
