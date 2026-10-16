@@ -105,6 +105,23 @@ def _get_groq_fallback_client():
     return client, settings.GROQ_MODEL
 
 
+def _get_json_client():
+    """Return (client, model) for non-streaming JSON endpoints.
+    Skips Cerebras because its reasoning model returns content=None.
+    Order: Groq → OpenRouter → Cerebras (last resort).
+    """
+    if settings.GROQ_API_KEY:
+        client = openai_lib.OpenAI(api_key=settings.GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
+        return client, settings.GROQ_MODEL
+    if settings.OPENROUTER_API_KEY:
+        client = openai_lib.OpenAI(api_key=settings.OPENROUTER_API_KEY, base_url="https://openrouter.ai/api/v1")
+        return client, settings.OPENROUTER_MODEL
+    if settings.CEREBRAS_API_KEY:
+        client = openai_lib.OpenAI(api_key=settings.CEREBRAS_API_KEY, base_url="https://api.cerebras.ai/v1")
+        return client, settings.CEREBRAS_MODEL
+    return None, None
+
+
 def _get_client_for_provider(provider_name: str):
     """Return (client, model, provider) for a specific provider name."""
     if provider_name == "groq" and settings.GROQ_API_KEY:
@@ -1031,7 +1048,8 @@ def api_scan_participants(request, session_id):
             }],
             max_tokens=600,
         )
-        content = resp.choices[0].message.content.strip()
+        _m = resp.choices[0].message
+        content = (_m.content or getattr(_m, "reasoning_content", None) or "").strip()
         match = re.search(r"\{.*\}", content, re.DOTALL)
         parsed = json.loads(match.group()) if match else {}
         names = [n for n in (parsed.get("names") or []) if isinstance(n, str) and n.strip()]
@@ -1089,7 +1107,8 @@ def api_extract_captions(request, session_id):
             }],
             max_tokens=300,
         )
-        content = resp.choices[0].message.content.strip()
+        _m = resp.choices[0].message
+        content = (_m.content or getattr(_m, "reasoning_content", None) or "").strip()
         match = re.search(r"\{.*\}", content, re.DOTALL)
         parsed = json.loads(match.group()) if match else {}
         text = str(parsed.get("text") or "").strip()
@@ -1129,7 +1148,7 @@ def api_meeting_summary(request, session_id):
     profile = _profile_for_token(ext_token) if ext_token else None
     user = profile.user if profile else request.user
     session = get_object_or_404(InterviewSession, id=session_id, owner=user)
-    client, model, provider = _get_chat_client()
+    client, model = _get_json_client()
     if not client:
         return JsonResponse({"error": "No AI key set. Add OPENROUTER_API_KEY or GROQ_API_KEY."}, status=500)
 
@@ -1169,7 +1188,8 @@ def api_meeting_summary(request, session_id):
             messages=[{"role": "system", "content": system_msg}, {"role": "user", "content": user_msg}],
             max_tokens=1200,
         )
-        raw = response.choices[0].message.content.strip()
+        msg = response.choices[0].message
+        raw = (msg.content or getattr(msg, "reasoning_content", None) or "").strip()
         if raw.startswith("```"):
             raw = "\n".join(raw.split("\n")[1:])
             if raw.endswith("```"):
@@ -1205,7 +1225,7 @@ def api_build_conversation(request):
     if not title:
         return JsonResponse({"error": "title required"}, status=400)
 
-    client, model, provider = _get_chat_client()
+    client, model = _get_json_client()
     if not client:
         return JsonResponse({"error": "No AI key set. Add OPENROUTER_API_KEY or GROQ_API_KEY."}, status=500)
 
@@ -1249,8 +1269,8 @@ Make every bullet point HIGHLY specific to the role, company, and context provid
             messages=[{"role": "user", "content": prompt}],
             max_tokens=1400,
         )
-        raw = response.choices[0].message.content.strip()
-        # Strip markdown code fences if present
+        msg = response.choices[0].message
+        raw = (msg.content or getattr(msg, "reasoning_content", None) or "").strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
@@ -1706,7 +1726,7 @@ def api_session_score(request, session_id):
     user = profile.user if profile else request.user
     session = get_object_or_404(InterviewSession, id=session_id, owner=user)
 
-    client, model, provider = _get_chat_client()
+    client, model = _get_json_client()
     if not client:
         return JsonResponse({"error": "No AI key set."}, status=500)
 
@@ -1753,7 +1773,8 @@ def api_session_score(request, session_id):
             messages=[{"role": "system", "content": system_msg}, {"role": "user", "content": user_msg}],
             max_tokens=800,
         )
-        raw = response.choices[0].message.content.strip()
+        msg = response.choices[0].message
+        raw = (msg.content or getattr(msg, "reasoning_content", None) or "").strip()
         if raw.startswith("```"):
             raw = "\n".join(raw.split("\n")[1:])
             if raw.endswith("```"):
@@ -2332,7 +2353,7 @@ def api_session_feedback(request, session_id):
     user = profile.user if profile else request.user
     session = get_object_or_404(InterviewSession, id=session_id, owner=user)
 
-    client, model, _ = _get_chat_client()
+    client, model = _get_json_client()
     if not client:
         return JsonResponse({"error": "No AI key set."}, status=500)
 
@@ -2389,7 +2410,8 @@ def api_session_feedback(request, session_id):
             messages=[{"role": "system", "content": system_msg}, {"role": "user", "content": user_msg}],
             max_tokens=2000,
         )
-        raw = response.choices[0].message.content.strip()
+        msg = response.choices[0].message
+        raw = (msg.content or getattr(msg, "reasoning_content", None) or "").strip()
         if raw.startswith("```"):
             raw = "\n".join(raw.split("\n")[1:])
             if raw.endswith("```"):
