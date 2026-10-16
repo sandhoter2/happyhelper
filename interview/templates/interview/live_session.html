@@ -4423,7 +4423,7 @@ function triggerAI(question, fromVoice) {
   fetch(`/api/session/${SESSION_ID}/chat/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
-    body: JSON.stringify({ question: _applyTemplate(question) }),
+    body: JSON.stringify({ question: _applyTemplate(question), raw_question: question }),
     signal: _streamAbortCtrl.signal,
   }).then(async (resp) => {
     if (!resp.ok) {

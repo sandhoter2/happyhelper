@@ -592,6 +592,7 @@ def api_chat(request, session_id):
         return JsonResponse({"error": "invalid JSON"}, status=400)
 
     question = data.get("question", "").strip()
+    raw_question = data.get("raw_question", "").strip() or question
     if not question:
         return JsonResponse({"error": "question required"}, status=400)
 
@@ -660,7 +661,7 @@ def api_chat(request, session_id):
         saved_content = "".join(full_content)
         AIMessage.objects.create(
             session=session,
-            trigger_text=question,
+            trigger_text=raw_question,
             content=saved_content,
         )
         yield f"data: {json.dumps({'type': 'end'})}\n\n"
