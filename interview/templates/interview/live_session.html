@@ -4364,12 +4364,11 @@ document.addEventListener('click', e => {
 _loadAITemplates();
 _loadConvTemplates();
 
-// Apply template prompt prefix to the question before sending
-function _applyTemplate(question) {
+// Return the resolved template instruction (sent as system prompt, not prepended to question)
+function _getTemplateInstruction() {
   const tpl = _getActiveTpl();
-  if (!tpl.prompt) return question;
-  const resolvedPrompt = tpl.prompt.replace(/\{job_title\}/g, SESSION_TITLE);
-  return `[INSTRUCTION: ${resolvedPrompt}]\n\n${question}`;
+  if (!tpl || !tpl.prompt) return '';
+  return tpl.prompt.replace(/\{job_title\}/g, SESSION_TITLE);
 }
 
 // ── AI HELP ───────────────────────────────────────────────────────────────────
@@ -4441,7 +4440,7 @@ function triggerAI(question, fromVoice) {
   fetch(`/api/session/${SESSION_ID}/chat/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
-    body: JSON.stringify({ question: _applyTemplate(question), raw_question: question, provider: aiProvider }),
+    body: JSON.stringify({ question: question, raw_question: question, provider: aiProvider, template_instruction: _getTemplateInstruction() }),
     signal: _streamAbortCtrl.signal,
   }).then(async (resp) => {
     if (!resp.ok) {

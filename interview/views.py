@@ -634,6 +634,12 @@ def api_chat(request, session_id):
     # Build document context from attached documents
     doc_context = _get_session_document_context(session)
     system_prompt = _build_system_prompt(session, document_context=doc_context)
+
+    # Append template instruction to system prompt so it doesn't pollute the user turn
+    template_instruction = data.get("template_instruction", "").strip()
+    if template_instruction:
+        system_prompt += f"\n\nAdditional instruction: {template_instruction}"
+
     user_message = f"Recent conversation transcript:\n{transcript_text}\n\nQuestion/topic to address: {question}"
 
     messages = [
@@ -643,7 +649,14 @@ def api_chat(request, session_id):
 
     def _run_stream(use_client, use_model, is_cerebras=False):
         """Yield delta text from one provider. Raises on connection error."""
-        kwargs = dict(model=use_model, messages=messages, stream=True, max_tokens=400)
+        if is_cerebras:
+            kwargs = dict(
+                model=use_model, messages=messages, stream=True,
+                max_completion_tokens=32768, temperature=1, top_p=0.95,
+                reasoning_effort="low",
+            )
+        else:
+            kwargs = dict(model=use_model, messages=messages, stream=True, max_tokens=400)
         stream = use_client.chat.completions.create(**kwargs)
         for chunk in stream:
             delta = chunk.choices[0].delta.content
@@ -656,7 +669,7 @@ def api_chat(request, session_id):
 
         active_client, active_model = client, model
         try:
-            for delta in _run_stream(active_client, active_model):
+            for delta in _run_stream(active_client, active_model, is_cerebras=(provider == "cerebras")):
                 full_content.append(delta)
                 yield f"data: {json.dumps({'type': 'text', 'text': delta})}\n\n"
         except Exception as primary_exc:
