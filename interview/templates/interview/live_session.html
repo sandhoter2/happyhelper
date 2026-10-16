@@ -4079,13 +4079,10 @@ function addNote() {
 function clearInput() {
   const qi = document.getElementById('questionInput');
   const fi = _doc().getElementById('fQuestionInput');
-  const text = (qi ? qi.value : '').trim() || (fi ? fi.value : '').trim();
-  if (text) saveMicToServer(text); // always persist before discarding
   if (qi) qi.value = '';
   if (fi) fi.value = '';
   micManualAccum = '';
   micLastCommitted = '';
-  // Hide the interim transcript entry so the display matches the cleared input
   if (interimEntry) interimEntry.style.display = 'none';
   if (interimText) interimText.textContent = 'Transcribing…';
   const qc = document.getElementById('qInputCount');

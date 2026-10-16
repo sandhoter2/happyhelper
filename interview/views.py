@@ -1000,16 +1000,18 @@ def api_scan_participants(request, session_id):
     if not screenshot:
         return JsonResponse({"error": "No screenshot provided"}, status=400)
 
-    api_key = getattr(settings, "GROQ_API_KEY", None)
+    api_key = getattr(settings, "OPENROUTER_API_KEY", None) or getattr(settings, "GROQ_API_KEY", None)
     if not api_key:
-        return JsonResponse({"error": "GROQ_API_KEY not configured"}, status=500)
+        return JsonResponse({"error": "No vision API key configured"}, status=500)
 
+    use_openrouter = bool(getattr(settings, "OPENROUTER_API_KEY", None))
     mime = screenshot.content_type or "image/png"
     b64 = base64.b64encode(screenshot.read()).decode("utf-8")
 
-    vision_model = getattr(settings, "GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
+    vision_model = getattr(settings, "VISION_MODEL", "openai/gpt-4o-mini") if use_openrouter else getattr(settings, "GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
+    base_url = "https://openrouter.ai/api/v1" if use_openrouter else "https://api.groq.com/openai/v1"
     try:
-        client = openai_lib.OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
+        client = openai_lib.OpenAI(api_key=api_key, base_url=base_url)
         resp = client.chat.completions.create(
             model=vision_model,
             messages=[{
@@ -1057,16 +1059,18 @@ def api_extract_captions(request, session_id):
     if not screenshot:
         return JsonResponse({"text": "", "speaker": ""})
 
-    api_key = getattr(settings, "GROQ_API_KEY", None)
+    api_key = getattr(settings, "OPENROUTER_API_KEY", None) or getattr(settings, "GROQ_API_KEY", None)
     if not api_key:
-        return JsonResponse({"error": "GROQ_API_KEY not configured"}, status=500)
+        return JsonResponse({"error": "No vision API key configured"}, status=500)
 
+    use_openrouter = bool(getattr(settings, "OPENROUTER_API_KEY", None))
     mime = screenshot.content_type or "image/png"
     b64 = base64.b64encode(screenshot.read()).decode("utf-8")
 
-    vision_model = getattr(settings, "GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
+    vision_model = getattr(settings, "VISION_MODEL", "openai/gpt-4o-mini") if use_openrouter else getattr(settings, "GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
+    base_url = "https://openrouter.ai/api/v1" if use_openrouter else "https://api.groq.com/openai/v1"
     try:
-        client = openai_lib.OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
+        client = openai_lib.OpenAI(api_key=api_key, base_url=base_url)
         resp = client.chat.completions.create(
             model=vision_model,
             messages=[{
