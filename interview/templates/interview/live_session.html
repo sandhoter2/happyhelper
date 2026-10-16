@@ -1536,7 +1536,7 @@ body.tc-select-mode .transcript-entry.selected::before, .transcript-entry.select
     <span class="drag-handle" aria-hidden="true">⠿</span>
     <span class="ai-float-title">Suggested answer</span>
     <div class="ai-float-controls">
-      <button class="float-ctrl-btn" onclick="toggleBionic()" id="bionicToggle" title="Bionic reading: bold the start of each word" aria-label="Bionic reading" aria-pressed="false">B</button>
+      <button class="float-ctrl-btn active" onclick="toggleBionic()" id="bionicToggle" title="Bionic reading: bold the start of each word" aria-label="Bionic reading" aria-pressed="true">B</button>
       <button class="float-ctrl-btn" onclick="adjustAIFontSize(-1)" title="Smaller font">A-</button>
       <button class="float-ctrl-btn" onclick="adjustAIFontSize(1)" title="Larger font">A+</button>
       <button class="float-ctrl-btn" id="regenBtn" onclick="regenAI()" style="display:none" title="Regenerate" aria-label="Regenerate">{% include "interview/_icon.html" with name="refresh" %}</button>
@@ -1550,7 +1550,7 @@ body.tc-select-mode .transcript-entry.selected::before, .transcript-entry.select
   </div>
   <!-- Bionic state sub-bar -->
   <div class="ai-float-sub" id="aiBionicBar">
-    <span style="font-size:12px;color:var(--text3)" id="bionicStatus">Bionic reading off</span>
+    <span style="font-size:12px;color:var(--text3)" id="bionicStatus">Bionic reading on</span>
     <label class="opacity-wrap" title="How see-through the answer panel is when it floats over other windows"><span>Opacity</span>
       <input type="range" class="opacity-slider" id="opacitySlider" min="15" max="100" value="90" aria-label="Panel transparency" oninput="setFloatOpacity(this.value)"></label>
     <span style="display:none;font-size:12px;color:var(--accent2);cursor:pointer" id="showTranscriptBtn" onclick="restoreTranscript()" title="Show the transcript panel">Show transcript</span>
@@ -1973,7 +1973,7 @@ let aiFontSize = 14;
 let audioCtx = null, analyser = null, waveDrawing = false;
 let sessionStart = Date.now();
 let timerInterval = null;
-let bionicMode = false;
+let bionicMode = true;
 let transcriptMinimized = false;
 
 // ── Bionic reading engine ─────────────────────────────────────────────────────
@@ -2072,6 +2072,7 @@ const aiPanel = document.getElementById('aiPanel');
 const aiLive = document.getElementById('aiLive');
 const aiAnswerText = document.getElementById('aiAnswerText');
 const aiCursor = document.getElementById('aiCursor');
+if (aiPanel) aiPanel.classList.add('bionic-on');
 const aiTriggerText = document.getElementById('aiTriggerText');
 const aiPlaceholder = document.getElementById('aiPlaceholder');
 const transcriptPanel = document.getElementById('transcriptPanel');
@@ -2719,10 +2720,8 @@ function micNotice(msg, kind, ms) {
 
 // Coming back to the page after switching apps: listen again
 document.addEventListener('visibilitychange', () => {
-  // ── AI stream: abort on hide so the server isn't left hanging; retry on show ──
-  if (document.hidden) {
-    if (isStreaming && _streamAbortCtrl) _streamAbortCtrl.abort();
-  } else if (_streamInterrupted && lastQuestion) {
+  // ── AI stream: let stream finish in background even when tab is hidden ──
+  if (!document.hidden && _streamInterrupted && lastQuestion) {
     _streamInterrupted = false;
     setTimeout(() => triggerAI(lastQuestion, true), 300);
   }
