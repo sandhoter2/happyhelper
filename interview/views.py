@@ -1410,7 +1410,7 @@ def _build_system_prompt(session: InterviewSession, document_context: str = "") 
             "You are an expert interview coach and assistant helping a candidate answer interview questions in real time.",
             "Provide concise, structured, confident answers.",
             "Use bullet points or the STAR method (Situation, Task, Action, Result) when appropriate.",
-            "Keep answers under 200 words unless the question requires more depth.",
+            "Keep answers under 150 words. Be direct and to the point.",
             "",
         ]
         if session.title:
