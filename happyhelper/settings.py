@@ -144,7 +144,7 @@ STRIPE_PRICE_TEAM = os.environ.get("STRIPE_PRICE_TEAM", "")
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 CEREBRAS_API_KEY = os.environ.get("CEREBRAS_API_KEY", "")
-CEREBRAS_MODEL = os.environ.get("CEREBRAS_MODEL", "qwen-3-32b")
+CEREBRAS_MODEL = os.environ.get("CEREBRAS_MODEL", "qwen-3.8-27b")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
 GROQ_WHISPER_MODEL = os.environ.get("GROQ_WHISPER_MODEL", "whisper-large-v3-turbo")
