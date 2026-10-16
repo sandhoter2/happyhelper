@@ -643,13 +643,7 @@ def api_chat(request, session_id):
 
     def _run_stream(use_client, use_model, is_cerebras=False):
         """Yield delta text from one provider. Raises on connection error."""
-        kwargs = dict(model=use_model, messages=messages, stream=True)
-        if is_cerebras:
-            # qwen-3.8-27b is a reasoning model; needs large token budget and reasoning_effort
-            kwargs["max_completion_tokens"] = 16000
-            kwargs["reasoning_effort"] = "low"
-        else:
-            kwargs["max_tokens"] = 400
+        kwargs = dict(model=use_model, messages=messages, stream=True, max_tokens=400)
         stream = use_client.chat.completions.create(**kwargs)
         for chunk in stream:
             delta = chunk.choices[0].delta.content
@@ -662,7 +656,7 @@ def api_chat(request, session_id):
 
         active_client, active_model = client, model
         try:
-            for delta in _run_stream(active_client, active_model, is_cerebras=(provider == "cerebras")):
+            for delta in _run_stream(active_client, active_model):
                 full_content.append(delta)
                 yield f"data: {json.dumps({'type': 'text', 'text': delta})}\n\n"
         except Exception as primary_exc:
