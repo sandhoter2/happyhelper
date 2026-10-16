@@ -105,6 +105,23 @@ def _get_groq_fallback_client():
     return client, settings.GROQ_MODEL
 
 
+def _get_client_for_provider(provider_name: str):
+    """Return (client, model, provider) for a specific provider name."""
+    if provider_name == "groq" and settings.GROQ_API_KEY:
+        client = openai_lib.OpenAI(
+            api_key=settings.GROQ_API_KEY,
+            base_url="https://api.groq.com/openai/v1",
+        )
+        return client, settings.GROQ_MODEL, "groq"
+    if provider_name == "cerebras" and settings.CEREBRAS_API_KEY:
+        client = openai_lib.OpenAI(
+            api_key=settings.CEREBRAS_API_KEY,
+            base_url="https://api.cerebras.ai/v1",
+        )
+        return client, settings.CEREBRAS_MODEL, "cerebras"
+    return _get_chat_client()
+
+
 def login_view(request):
     if request.user.is_authenticated:
         return redirect("/")
@@ -596,7 +613,11 @@ def api_chat(request, session_id):
     if not question:
         return JsonResponse({"error": "question required"}, status=400)
 
-    client, model, provider = _get_chat_client()
+    requested_provider = data.get("provider", "").strip().lower()
+    if requested_provider in ("groq", "cerebras"):
+        client, model, provider = _get_client_for_provider(requested_provider)
+    else:
+        client, model, provider = _get_chat_client()
     if not client:
         return JsonResponse(
             {"error": "No AI key set. Add CEREBRAS_API_KEY or GROQ_API_KEY to your environment."},
@@ -628,7 +649,7 @@ def api_chat(request, session_id):
             kwargs["max_completion_tokens"] = 16000
             kwargs["reasoning_effort"] = "low"
         else:
-            kwargs["max_tokens"] = 600
+            kwargs["max_tokens"] = 400
         stream = use_client.chat.completions.create(**kwargs)
         for chunk in stream:
             delta = chunk.choices[0].delta.content

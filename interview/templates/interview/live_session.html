@@ -1536,6 +1536,7 @@ body.tc-select-mode .transcript-entry.selected::before, .transcript-entry.select
     <span class="drag-handle" aria-hidden="true">⠿</span>
     <span class="ai-float-title">Suggested answer</span>
     <div class="ai-float-controls">
+      <button class="float-ctrl-btn" id="providerToggle" onclick="toggleProvider()" title="Switch AI provider (Groq = fast, Cerebras = smart)" aria-label="Switch AI provider">⚡</button>
       <button class="float-ctrl-btn active" onclick="toggleBionic()" id="bionicToggle" title="Bionic reading: bold the start of each word" aria-label="Bionic reading" aria-pressed="true">B</button>
       <button class="float-ctrl-btn" onclick="adjustAIFontSize(-1)" title="Smaller font">A-</button>
       <button class="float-ctrl-btn" onclick="adjustAIFontSize(1)" title="Larger font">A+</button>
@@ -1551,6 +1552,7 @@ body.tc-select-mode .transcript-entry.selected::before, .transcript-entry.select
   <!-- Bionic state sub-bar -->
   <div class="ai-float-sub" id="aiBionicBar">
     <span style="font-size:12px;color:var(--text3)" id="bionicStatus">Bionic reading on</span>
+    <span style="font-size:12px;color:var(--text3)" id="providerStatus">⚡ Groq (fast)</span>
     <label class="opacity-wrap" title="How see-through the answer panel is when it floats over other windows"><span>Opacity</span>
       <input type="range" class="opacity-slider" id="opacitySlider" min="15" max="100" value="90" aria-label="Panel transparency" oninput="setFloatOpacity(this.value)"></label>
     <span style="display:none;font-size:12px;color:var(--accent2);cursor:pointer" id="showTranscriptBtn" onclick="restoreTranscript()" title="Show the transcript panel">Show transcript</span>
@@ -1975,6 +1977,7 @@ let sessionStart = Date.now();
 let timerInterval = null;
 let bionicMode = true;
 let transcriptMinimized = false;
+let aiProvider = 'groq'; // 'groq' (fast) or 'cerebras' (smart)
 
 // ── Bionic reading engine ─────────────────────────────────────────────────────
 // Keywords that get full highlight (mark) instead of just bold-prefix
@@ -2059,6 +2062,21 @@ function toggleBionic() {
     else removeBionicFromEl(el);
   });
   toast('Bionic reading ' + (bionicMode ? 'on' : 'off'), 'info');
+}
+
+function toggleProvider() {
+  aiProvider = (aiProvider === 'groq') ? 'cerebras' : 'groq';
+  const d = _doc();
+  const btn = d.getElementById('providerToggle');
+  const st = d.getElementById('providerStatus');
+  const isCerebras = aiProvider === 'cerebras';
+  if (btn) {
+    btn.textContent = isCerebras ? '🧠' : '⚡';
+    btn.classList.toggle('active', isCerebras);
+    btn.title = isCerebras ? 'Cerebras (smart) — click for Groq (fast)' : 'Groq (fast) — click for Cerebras (smart)';
+  }
+  if (st) st.textContent = isCerebras ? '🧠 Cerebras (smart)' : '⚡ Groq (fast)';
+  toast(isCerebras ? 'Switched to Cerebras (smart)' : 'Switched to Groq (fast)', 'info');
 }
 
 const ICON_MIC = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V7a3 3 0 0 0-3-3zM6 11a6 6 0 0 0 12 0M12 17v3"/></svg>';
@@ -4423,7 +4441,7 @@ function triggerAI(question, fromVoice) {
   fetch(`/api/session/${SESSION_ID}/chat/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
-    body: JSON.stringify({ question: _applyTemplate(question), raw_question: question }),
+    body: JSON.stringify({ question: _applyTemplate(question), raw_question: question, provider: aiProvider }),
     signal: _streamAbortCtrl.signal,
   }).then(async (resp) => {
     if (!resp.ok) {
