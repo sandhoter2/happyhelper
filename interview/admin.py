@@ -1,15 +1,14 @@
 import datetime
 
 from django.contrib import admin
-from django.db.models import Q
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import path
 from django.utils import timezone
 from django.utils.html import format_html
-from django.utils.timezone import localtime, now as tz_now
+from django.utils.timezone import localtime
 
-from .models import AIMessage, DocumentParserConfig, InterviewSession, OriginalTranscript, QuestionBank, SessionDocument, Task, TranscriptEntry, UserDocument, UserProfile
+from .models import AIMessage, DocumentParserConfig, InterviewSession, QuestionBank, SessionDocument, Task, TranscriptEntry, UserDocument, UserProfile
 
 
 @admin.register(UserProfile)
@@ -287,85 +286,3 @@ class UserDocumentAdmin(admin.ModelAdmin):
 class SessionDocumentAdmin(admin.ModelAdmin):
     list_display = ("document", "session", "attached_at")
     search_fields = ("document__original_filename", "session__title")
-
-
-# ── Original Transcript admin (soft-delete capable) ───────────────────────────
-
-class DeletedFilter(admin.SimpleListFilter):
-    title = "deleted status"
-    parameter_name = "deleted"
-
-    def lookups(self, request, model_admin):
-        return [("active", "Active"), ("deleted", "Soft Deleted")]
-
-    def queryset(self, qs, request=None):
-        # SimpleListFilter passes queryset as positional arg; accept either
-        if request is None:
-            request, qs = qs, request  # swap if called with wrong arg order
-        val = self.value()
-        if val == "active":
-            return qs.filter(deleted_at__isnull=True)
-        if val == "deleted":
-            return qs.filter(deleted_at__isnull=False)
-        return qs
-
-    def queryset(self, request, qs):
-        val = self.value()
-        if val == "active":
-            return qs.filter(deleted_at__isnull=True)
-        if val == "deleted":
-            return qs.filter(deleted_at__isnull=False)
-        return qs
-
-
-def _soft_delete_selected(modeladmin, request, queryset):
-    now = timezone.now()
-    updated = queryset.filter(deleted_at__isnull=True).update(deleted_at=now)
-    modeladmin.message_user(request, f"{updated} record(s) soft-deleted.")
-_soft_delete_selected.short_description = "Soft-delete selected records"
-
-
-def _restore_selected(modeladmin, request, queryset):
-    updated = queryset.filter(deleted_at__isnull=False).update(deleted_at=None)
-    modeladmin.message_user(request, f"{updated} record(s) restored.")
-_restore_selected.short_description = "Restore (un-delete) selected records"
-
-
-@admin.register(OriginalTranscript)
-class OriginalTranscriptAdmin(admin.ModelAdmin):
-    list_display = (
-        "session_link", "speaker_type", "content_preview",
-        "deleted_badge", "created_at",
-    )
-    list_filter = ("speaker_type", DeletedFilter, "created_at")
-    search_fields = ("content", "session__title", "speaker_name")
-    readonly_fields = ("id", "session", "transcript_entry", "created_at")
-    ordering = ("-created_at",)
-    list_per_page = 50
-    actions = [_soft_delete_selected, _restore_selected]
-
-    def get_queryset(self, request):
-        # Show ALL rows (including soft-deleted) in admin
-        return OriginalTranscript.all_objects.all()
-
-    def session_link(self, obj):
-        return format_html(
-            '<a href="/admin/interview/interviewsession/{}/change/">{}</a>',
-            obj.session.id, obj.session.title[:40]
-        )
-    session_link.short_description = "Session"
-
-    def content_preview(self, obj):
-        return obj.content[:80] + "…" if len(obj.content) > 80 else obj.content
-    content_preview.short_description = "Content"
-
-    def deleted_badge(self, obj):
-        if obj.deleted_at:
-            return format_html(
-                '<span style="background:#ef444422;color:#ef4444;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700">🗑 DELETED {}</span>',
-                obj.deleted_at.strftime("%Y-%m-%d")
-            )
-        return format_html(
-            '<span style="background:#10b98122;color:#10b981;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700">✓ ACTIVE</span>'
-        )
-    deleted_badge.short_description = "Status"
