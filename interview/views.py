@@ -25,7 +25,6 @@ from django.views.decorators.http import require_POST
 
 from .forms import NewSessionForm, UserProfileForm
 from .models import AIMessage, DocumentFolder, DocumentParserConfig, InterviewSession, MeetingParticipant, SessionDocument, TranscriptEntry, UserDocument, UserProfile, PromptTemplate, QuestionBank
-from . import llama_service
 
 AI_HELP_DEFAULTS = [
     {"name": "Default", "icon": "✨", "description": "Clear, direct answer — no forced structure", "prompt": "", "order": 0},
@@ -1406,10 +1405,13 @@ def _get_session_document_context(session: InterviewSession) -> str:
 
 
 def _get_parser_config():
-    """Return the active LlamaParse config, or default values if none exists."""
+    """Return the active document parser config, or default values if none exists."""
     try:
-        return DocumentParserConfig.objects.get(parser_type="llamaparse", is_active=True)
-    except DocumentParserConfig.DoesNotExist:
+        result = DocumentParserConfig.objects.filter(is_active=True).first()
+        if result:
+            return result
+        raise Exception("No active config")
+    except Exception:
         class _Default:
             max_documents = 10
             max_total_size_mb = 10.0
@@ -1593,77 +1595,6 @@ def stripe_webhook(request):
                 profile.save(update_fields=["plan", "stripe_subscription_id"])
         except UserProfile.DoesNotExist:
             pass
-
-    return HttpResponse(status=200)
-
-
-# ── LLAMAPARSE WEBHOOK ──────────────────────────────────────────────────────────
-
-@csrf_exempt
-@require_POST
-def llamaparse_webhook(request):
-    """Receive LlamaParse job-completion notifications and update document status."""
-    import hmac
-    import hashlib
-
-    secret = settings.LLAMAPARSE_WEBHOOK_SECRET
-    if secret:
-        sig = request.META.get("HTTP_X_LLAMAINDEX_SIGNATURE", "")
-        expected = hmac.new(secret.encode(), request.body, hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(sig, expected):
-            return HttpResponse(status=400)
-
-    try:
-        data = json.loads(request.body)
-    except (ValueError, KeyError):
-        return HttpResponse(status=400)
-
-    job_id = data.get("id") or data.get("job_id", "")
-    status = (data.get("status") or "").upper()
-    if not job_id:
-        return HttpResponse(status=200)
-
-    try:
-        doc = UserDocument.objects.get(llama_job_id=job_id, status=UserDocument.STATUS_PROCESSING)
-    except UserDocument.DoesNotExist:
-        return HttpResponse(status=200)
-
-    try:
-        if status in ("COMPLETED", "SUCCESS"):
-            config = _get_parser_config()
-            markdown = llama_service.get_parsed_markdown(job_id)
-            page_count = llama_service.estimate_page_count(markdown)
-            existing_pages = UserDocument.objects.filter(
-                owner=doc.owner, status=UserDocument.STATUS_READY
-            ).exclude(id=doc.id).aggregate(t=models.Sum("page_count"))["t"] or 0
-            if (existing_pages + page_count) > config.max_total_pages:
-                llama_service.delete_job(job_id)
-                doc.status = UserDocument.STATUS_ERROR
-                doc.error_message = "Page limit exceeded"
-                doc.save(update_fields=["status", "error_message"])
-            else:
-                doc.parsed_text = markdown
-                doc.page_count = page_count
-                doc.status = UserDocument.STATUS_READY
-                doc.save(update_fields=["parsed_text", "page_count", "status"])
-                logger.info("Webhook: doc %s ready via job %s", doc.id, job_id)
-
-                if not doc.llama_cloud_synced and doc.llama_file_id and doc.folder and doc.folder.llama_directory_id:
-                    try:
-                        llama_service.add_file_to_directory(doc.folder.llama_directory_id, doc.llama_file_id)
-                        doc.llama_cloud_synced = True
-                        doc.save(update_fields=["llama_cloud_synced"])
-                    except Exception:
-                        logger.exception("Webhook: cloud sync failed for doc %s", doc.id)
-
-        elif status in ("FAILED", "CANCELLED", "CANCELED", "ERROR", "NOT_FOUND"):
-            doc.status = UserDocument.STATUS_ERROR
-            doc.error_message = f"LlamaParse job ended with status: {status}"
-            doc.save(update_fields=["status", "error_message"])
-            logger.warning("Webhook: doc %s error via job %s status %s", doc.id, job_id, status)
-
-    except Exception:
-        logger.exception("llamaparse_webhook error for job %s doc %s", job_id, doc.id)
 
     return HttpResponse(status=200)
 
@@ -2455,7 +2386,6 @@ def api_documents_list(request):
             "created_at": d.created_at.isoformat(),
             "folder_id": str(d.folder_id) if d.folder_id else None,
             "folder_name": d.folder.name if d.folder else None,
-            "llama_cloud_synced": d.llama_cloud_synced,
         }
         for d in docs
     ]
@@ -2464,7 +2394,6 @@ def api_documents_list(request):
         {
             "id": str(f.id),
             "name": f.name,
-            "llama_index_id": f.llama_index_id,
             "created_at": f.created_at.isoformat(),
         }
         for f in folders
@@ -2497,7 +2426,8 @@ def api_document_upload(request):
     upload = request.FILES["file"]
     filename = upload.name
     ext = _os.path.splitext(filename)[1].lower()
-    if ext not in llama_service.SUPPORTED_EXTENSIONS:
+    SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".doc", ".txt", ".xlsx", ".xls", ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".go", ".rb", ".rs", ".cpp", ".c", ".h", ".cs", ".md"}
+    if ext not in SUPPORTED_EXTENSIONS:
         return JsonResponse({"error": f"Unsupported file type: {ext}"}, status=400)
 
     existing_docs = UserDocument.objects.filter(owner=request.user)
@@ -2522,32 +2452,9 @@ def api_document_upload(request):
         folder=folder,
         original_filename=filename,
         size_bytes=size_bytes,
-        status=UserDocument.STATUS_PROCESSING,
+        status=UserDocument.STATUS_READY,
     )
 
-    try:
-        job_info = llama_service.upload_file(upload, filename, webhook_id=settings.LLAMAPARSE_WEBHOOK_ID)
-        job_id = job_info.get("id") or job_info.get("job_id", "")
-        llama_file_id = job_info.get("file_id", "")
-        doc.llama_job_id = job_id
-        doc.llama_file_id = llama_file_id
-        doc.save(update_fields=["llama_job_id", "llama_file_id"])
-
-        # If the folder has a cloud directory, add this file to it immediately
-        if folder and folder.llama_directory_id and llama_file_id:
-            try:
-                llama_service.add_file_to_directory(folder.llama_directory_id, llama_file_id)
-                doc.llama_cloud_synced = True
-                doc.save(update_fields=["llama_cloud_synced"])
-            except Exception:
-                logger.exception("add_file_to_directory failed for doc %s dir %s file %s",
-                                 doc.id, folder.llama_directory_id, llama_file_id)
-    except Exception as exc:
-        doc.status = UserDocument.STATUS_ERROR
-        doc.error_message = str(exc)
-        doc.save()
-
-    # Return immediately — client polls api_document_status until ready/error
     return JsonResponse({
         "id": str(doc.id),
         "filename": doc.original_filename,
@@ -2561,59 +2468,11 @@ def api_document_upload(request):
 @login_required
 def api_document_status(request, document_id):
     doc = get_object_or_404(UserDocument, id=document_id, owner=request.user)
-
-    # Mark stale uploads (processing > 30 min with no job ID) as error
-    if doc.status == UserDocument.STATUS_PROCESSING and not doc.llama_job_id:
-        if (dj_timezone.now() - doc.created_at) > timedelta(minutes=30):
-            doc.status = UserDocument.STATUS_ERROR
-            doc.error_message = "Upload timed out: no parse job was created"
-            doc.save(update_fields=["status", "error_message"])
-
-    # If still processing and we have a job ID, check LlamaParse now
-    if doc.status == UserDocument.STATUS_PROCESSING and doc.llama_job_id:
-        try:
-            config = _get_parser_config()
-            info = llama_service.get_job_status(doc.llama_job_id)
-            remote = info.get("status", "").upper()
-            if remote in ("COMPLETED", "SUCCESS"):
-                markdown = llama_service.get_parsed_markdown(doc.llama_job_id)
-                page_count = llama_service.estimate_page_count(markdown)
-                existing_pages = UserDocument.objects.filter(
-                    owner=request.user, status=UserDocument.STATUS_READY
-                ).exclude(id=doc.id).aggregate(t=models.Sum("page_count"))["t"] or 0
-                if (existing_pages + page_count) > config.max_total_pages:
-                    llama_service.delete_job(doc.llama_job_id)
-                    doc.delete()
-                    return JsonResponse({"error": "Page limit exceeded"}, status=400)
-                doc.parsed_text = markdown
-                doc.page_count = page_count
-                doc.status = UserDocument.STATUS_READY
-                doc.save(update_fields=["parsed_text", "page_count", "status"])
-
-                # Retry cloud sync if not yet synced and file belongs to a folder with a directory
-                if not doc.llama_cloud_synced and doc.llama_file_id and doc.folder and doc.folder.llama_directory_id:
-                    try:
-                        llama_service.add_file_to_directory(doc.folder.llama_directory_id, doc.llama_file_id)
-                        doc.llama_cloud_synced = True
-                        doc.save(update_fields=["llama_cloud_synced"])
-                        logger.info("Cloud sync completed for doc %s on parse completion", doc.id)
-                    except Exception:
-                        logger.exception("Retry add_file_to_directory failed for doc %s", doc.id)
-
-            elif remote in ("FAILED", "CANCELLED", "CANCELED", "ERROR", "NOT_FOUND"):
-                doc.status = UserDocument.STATUS_ERROR
-                doc.error_message = f"LlamaParse job ended with status: {remote}"
-                doc.save(update_fields=["status", "error_message"])
-        except Exception:
-            logger.exception("api_document_status error for doc %s job %s", doc.id, doc.llama_job_id)
-
     return JsonResponse({
         "id": str(doc.id),
         "status": doc.status,
         "page_count": doc.page_count,
         "error_message": doc.error_message,
-        "llama_cloud_synced": doc.llama_cloud_synced,
-        "llama_file_id": doc.llama_file_id,
     })
 
 
@@ -2621,16 +2480,6 @@ def api_document_status(request, document_id):
 @require_POST
 def api_document_delete(request, document_id):
     doc = get_object_or_404(UserDocument, id=document_id, owner=request.user)
-    if doc.llama_job_id:
-        try:
-            llama_service.delete_job(doc.llama_job_id)
-        except Exception:
-            pass
-    if doc.llama_file_id:
-        try:
-            llama_service.delete_file(doc.llama_file_id)
-        except Exception:
-            logger.exception("delete_file failed for doc %s file %s", doc.id, doc.llama_file_id)
     doc.delete()
     return JsonResponse({"ok": True})
 
@@ -2650,25 +2499,9 @@ def api_folder_create(request):
 
     folder = DocumentFolder.objects.create(owner=request.user, name=name)
 
-    # Provision a LlamaIndex Cloud directory + index
-    # Name format: username__folderuuid — globally unique and identifiable in LlamaIndex Cloud
-    llama_name = f"{request.user.username}__{folder.id}"
-    llama_error = None
-    try:
-        dir_resp = llama_service.create_directory(llama_name)
-        folder.llama_directory_id = dir_resp.get("id", "")
-        idx_resp = llama_service.create_index(folder.llama_directory_id, llama_name)
-        folder.llama_index_id = idx_resp.get("id", "")
-        folder.save(update_fields=["llama_directory_id", "llama_index_id"])
-    except Exception as e:
-        llama_error = str(e)
-        logger.exception("LlamaIndex Cloud provisioning failed for folder %s", folder.id)
-
     return JsonResponse({
         "id": str(folder.id),
         "name": folder.name,
-        "llama_index_id": folder.llama_index_id,
-        "llama_error": llama_error,
         "created_at": folder.created_at.isoformat(),
     }, status=201)
 
@@ -2677,32 +2510,6 @@ def api_folder_create(request):
 @require_POST
 def api_folder_delete(request, folder_id):
     folder = get_object_or_404(DocumentFolder, id=folder_id, owner=request.user)
-
-    # Clean up LlamaIndex Cloud resources
-    if folder.llama_index_id:
-        try:
-            llama_service.delete_index(folder.llama_index_id)
-        except Exception:
-            pass
-    if folder.llama_directory_id:
-        try:
-            llama_service.delete_directory(folder.llama_directory_id)
-        except Exception:
-            pass
-
-    # Delete associated LlamaParse jobs and LlamaIndex Cloud file objects
-    for doc in folder.documents.all():
-        if doc.llama_job_id:
-            try:
-                llama_service.delete_job(doc.llama_job_id)
-            except Exception:
-                pass
-        if doc.llama_file_id:
-            try:
-                llama_service.delete_file(doc.llama_file_id)
-            except Exception:
-                logger.exception("delete_file failed for doc %s file %s", doc.id, doc.llama_file_id)
-
     folder.delete()  # cascades to documents (SET_NULL), not deletes them
     return JsonResponse({"ok": True})
 
@@ -2724,29 +2531,8 @@ def api_document_move(request, document_id):
         except DocumentFolder.DoesNotExist:
             return JsonResponse({"error": "Folder not found"}, status=404)
 
-    old_folder = doc.folder
-
-    # Remove from old directory in LlamaIndex Cloud before reassigning
-    if old_folder and old_folder != folder and old_folder.llama_directory_id and doc.llama_file_id:
-        try:
-            llama_service.remove_file_from_directory(old_folder.llama_directory_id, doc.llama_file_id)
-        except Exception:
-            logger.exception("remove_file_from_directory failed for doc %s dir %s",
-                             doc.id, old_folder.llama_directory_id)
-
     doc.folder = folder
-    doc.llama_cloud_synced = False  # will be set True below if sync succeeds
-    doc.save(update_fields=["folder", "llama_cloud_synced"])
-
-    # Add to new directory in LlamaIndex Cloud
-    if folder and folder.llama_directory_id and doc.llama_file_id:
-        try:
-            llama_service.add_file_to_directory(folder.llama_directory_id, doc.llama_file_id)
-            doc.llama_cloud_synced = True
-            doc.save(update_fields=["llama_cloud_synced"])
-        except Exception:
-            logger.exception("add_file_to_directory failed on move for doc %s dir %s",
-                             doc.id, folder.llama_directory_id)
+    doc.save(update_fields=["folder"])
 
     return JsonResponse({
         "id": str(doc.id),

@@ -352,9 +352,6 @@ class DocumentFolder(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="document_folders")
     name = models.CharField(max_length=255)
-    # LlamaIndex Cloud identifiers (populated once the cloud dir/index is created)
-    llama_directory_id = models.CharField(max_length=128, blank=True)
-    llama_index_id = models.CharField(max_length=128, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -367,12 +364,7 @@ class DocumentFolder(models.Model):
 
 
 class DocumentParserConfig(models.Model):
-    PARSER_LLAMAPARSE = "llamaparse"
-    PARSER_CHOICES = [
-        (PARSER_LLAMAPARSE, "LlamaParse"),
-    ]
-
-    parser_type = models.CharField(max_length=30, choices=PARSER_CHOICES, default=PARSER_LLAMAPARSE, unique=True)
+    parser_type = models.CharField(max_length=30, default="default", unique=True)
     max_documents = models.IntegerField(default=10, help_text="Max documents per user")
     max_total_size_mb = models.FloatField(default=10.0, help_text="Max total size in MB across all documents")
     max_total_pages = models.IntegerField(default=100, help_text="Max total pages across all documents")
@@ -414,9 +406,6 @@ class UserDocument(models.Model):
     file = models.FileField(upload_to=user_document_upload_path, blank=True)
     size_bytes = models.BigIntegerField(default=0)
     page_count = models.IntegerField(default=0)
-    llama_job_id = models.CharField(max_length=128, blank=True)
-    llama_file_id = models.CharField(max_length=128, blank=True)
-    llama_cloud_synced = models.BooleanField(default=False)
     parsed_text = models.TextField(blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
     error_message = models.TextField(blank=True)

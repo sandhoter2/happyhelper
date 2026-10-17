@@ -43,7 +43,6 @@ urlpatterns = [
     path("billing/success/", views.billing_success, name="billing_success"),
     path("billing/portal/", views.billing_portal, name="billing_portal"),
     path("billing/webhook/", views.stripe_webhook, name="stripe_webhook"),
-    path("api/webhooks/llamaparse/", views.llamaparse_webhook, name="llamaparse_webhook"),
     # Onboarding
     path("onboarding/", views.onboarding_view, name="onboarding"),
     # Desktop overlay auth

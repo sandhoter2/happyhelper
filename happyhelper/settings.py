@@ -162,10 +162,6 @@ OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 VISION_MODEL = os.environ.get("VISION_MODEL", "openai/gpt-4o-mini")
 
-LLAMAPARSE_API_KEY = os.environ.get("LLAMAPARSE_API_KEY", "")
-LLAMAPARSE_WEBHOOK_ID = os.environ.get("LLAMAPARSE_WEBHOOK_ID", "")
-LLAMAPARSE_WEBHOOK_SECRET = os.environ.get("LLAMAPARSE_WEBHOOK_SECRET", "")
-
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
 

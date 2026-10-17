@@ -244,13 +244,11 @@ function renderDocs(data) {
     const sec = document.createElement('div');
     sec.className = 'folder-section';
     sec.dataset.folderId = folder.id;
-    const hasIndex = !!folder.llama_index_id;
     sec.innerHTML = `
       <div class="folder-heading">
         <span class="folder-heading-icon">📁</span>
         <span class="folder-heading-name">${escHtml(folder.name)}</span>
         <span class="folder-heading-index">${docs.length} doc${docs.length!==1?'s':''}</span>
-        ${hasIndex ? `<span class="folder-heading-badge">LlamaIndex</span>` : ''}
         <button class="btn btn-ghost btn-xs btn-delete-folder" data-id="${folder.id}" title="Delete folder">🗑</button>
       </div>
       <div class="doc-list folder-doc-list"></div>
@@ -287,11 +285,7 @@ function makeDocCard(doc) {
   card.className = 'doc-card';
   card.dataset.id = doc.id;
   const statusLabel = { ready: 'Ready', processing: 'Processing…', pending: 'Pending', error: 'Error' }[doc.status] || doc.status;
-  const cloudBadge = doc.folder_id
-    ? (doc.llama_cloud_synced
-        ? `<span class="cloud-badge synced" title="File indexed in LlamaIndex Cloud">☁ Synced</span>`
-        : `<span class="cloud-badge pending" title="Not yet synced to LlamaIndex Cloud">☁ Pending</span>`)
-    : '';
+  const cloudBadge = '';
   card.innerHTML = `
     <div class="doc-icon">${fileIcon(doc.filename)}</div>
     <div class="doc-info">
@@ -409,7 +403,6 @@ async function uploadFile(file, folderId) {
             clearInterval(iv);
             data.status = sd.status;
             data.error_message = sd.error_message;
-            data.llama_cloud_synced = sd.llama_cloud_synced;
             await loadDocs();
             resolve();
           }
