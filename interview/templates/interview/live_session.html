@@ -2674,12 +2674,13 @@ function makeMicRecognition() {
         refreshMHSuggestions();
         if (autoAI && (transcribeMode !== 'dynamic' || isQuestionEnding(text))) triggerAI(text, true);
       } else {
-        // Manual mode: YOUR voice → transcript only, never auto-fills question input
-        // (Their Voice 🔊 fills the question input for the interviewer's questions)
+        // Manual mode: voice → transcript immediately AND mirrors to question input.
+        // User presses "Get Answer" to send to AI; text box clears on submit or clear.
         saveMicToServer(text);
         addTranscriptEntryUI(text, 'microphone');
         refreshMHSuggestions();
-        micManualAccum = '';
+        micManualAccum += (micManualAccum ? ' ' : '') + text;
+        setMicInputText(micManualAccum);
       }
     }
   };
@@ -4375,18 +4376,15 @@ function triggerAI(question, fromVoice) {
 
   const fInput = _doc().getElementById('fQuestionInput');
 
-  // In manual mode, flush accumulated mic speech first
+  // In manual mode, use accumulated mic text as the question (already saved to transcript in onresult)
   if (transcribeMode === 'manual' && micManualAccum && !question) {
-    const accum = micManualAccum.trim();
+    question = micManualAccum.trim();
     micManualAccum = '';
     micLastCommitted = '';
-    saveMicToServer(accum);
-    addTranscriptEntryUI(accum, 'microphone');
     interimEntry.style.display = 'none';
     interimText.textContent = 'Transcribing…';
     if (interimLabel) { interimLabel.textContent = 'You'; interimLabel.style.color = 'var(--accent2)'; }
-    question = accum;
-    fromVoice = true; // already saved above
+    fromVoice = true; // already saved to server and transcript in onresult
   }
 
   const wasTyped = !question;
