@@ -320,37 +320,22 @@ function generateFeedback() {
     headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken')},
     body: JSON.stringify({})
   }).then(res => {
-    if (!res.ok) { res.text().then(t => { loading.style.display='none'; toast('Error: '+t,'error'); btn.disabled=false; btn.textContent='✨ Generate Feedback'; }); return; }
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let raw = '';
-    function read() {
-      reader.read().then(({done, value}) => {
-        if (done) {
-          loading.style.display = 'none';
-          btn.disabled = false;
-          btn.textContent = '🔄 Regenerate';
-          try {
-            const data = JSON.parse(raw);
-            renderFeedback(data);
-          } catch {
-            content.style.display = 'block';
-            content.innerHTML = `<pre style="font-size:12px;white-space:pre-wrap;padding:12px">${raw}</pre>`;
-          }
-          return;
-        }
-        const chunk = decoder.decode(value);
-        chunk.split('\n').forEach(line => {
-          if (line.startsWith('data: ')) {
-            const d = line.slice(6);
-            if (d === '[DONE]') return;
-            try { raw += JSON.parse(d).text || ''; } catch {}
-          }
-        });
-        read();
+    if (!res.ok) {
+      return res.text().then(t => {
+        loading.style.display = 'none';
+        btn.disabled = false;
+        btn.textContent = '✨ Generate Feedback';
+        let msg = t;
+        try { msg = JSON.parse(t).error || t; } catch {}
+        toast('Error: ' + msg, 'error');
       });
     }
-    read();
+    return res.json().then(data => {
+      loading.style.display = 'none';
+      btn.disabled = false;
+      btn.textContent = '🔄 Regenerate';
+      renderFeedback(data);
+    });
   }).catch(e => { loading.style.display='none'; toast('Error: '+e.message,'error'); btn.disabled=false; btn.textContent='✨ Generate Feedback'; });
 }
 
