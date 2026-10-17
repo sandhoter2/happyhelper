@@ -3,6 +3,7 @@ from django.contrib.auth.models import User
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.utils import timezone
 
 
 class UserProfile(models.Model):
@@ -508,3 +509,72 @@ class FeatureRequest(models.Model):
 
     def __str__(self):
         return f"{self.title} ({self.status})"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Original Transcript — immutable archive with soft-delete
+# ──────────────────────────────────────────────────────────────────────────────
+
+class OriginalTranscriptManager(models.Manager):
+    """Default manager: hides soft-deleted rows."""
+    def get_queryset(self):
+        return super().get_queryset().filter(deleted_at__isnull=True)
+
+
+class OriginalTranscriptAllManager(models.Manager):
+    """Manager that includes soft-deleted rows — used in admin."""
+    def get_queryset(self):
+        return super().get_queryset()
+
+
+class OriginalTranscript(models.Model):
+    TYPE_MIC = "microphone"
+    TYPE_SYSTEM = "system"
+    TYPE_NOTE = "note"
+    TYPE_CHOICES = [
+        (TYPE_MIC, "Microphone"),
+        (TYPE_SYSTEM, "System Audio"),
+        (TYPE_NOTE, "Note"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session = models.ForeignKey(
+        InterviewSession, on_delete=models.CASCADE, related_name="original_transcripts"
+    )
+    # Mirror of the linked TranscriptEntry (kept even if the entry is hard-deleted)
+    transcript_entry = models.ForeignKey(
+        TranscriptEntry, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="originals",
+    )
+    content = models.TextField()
+    speaker_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default=TYPE_MIC)
+    speaker_name = models.CharField(max_length=100, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    # Soft delete — NULL means active; a timestamp means deleted.
+    deleted_at = models.DateTimeField(null=True, blank=True, db_index=True)
+
+    objects = OriginalTranscriptManager()
+    all_objects = OriginalTranscriptAllManager()
+
+    class Meta:
+        ordering = ["created_at"]
+        verbose_name = "Original Transcript"
+        verbose_name_plural = "Original Transcripts"
+
+    def __str__(self):
+        status = "🗑 " if self.deleted_at else ""
+        return f"{status}[{self.speaker_type}] {self.content[:60]}"
+
+    @property
+    def is_deleted(self):
+        return self.deleted_at is not None
+
+    def soft_delete(self):
+        if not self.deleted_at:
+            self.deleted_at = timezone.now()
+            self.save(update_fields=["deleted_at"])
+
+    def restore(self):
+        if self.deleted_at:
+            self.deleted_at = None
+            self.save(update_fields=["deleted_at"])

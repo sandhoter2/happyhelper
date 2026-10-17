@@ -24,7 +24,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from .forms import NewSessionForm, UserProfileForm
-from .models import AIMessage, DocumentFolder, DocumentParserConfig, InterviewSession, MeetingParticipant, SessionDocument, TranscriptEntry, UserDocument, UserProfile, PromptTemplate, QuestionBank
+from .models import AIMessage, DocumentFolder, DocumentParserConfig, InterviewSession, MeetingParticipant, OriginalTranscript, SessionDocument, TranscriptEntry, UserDocument, UserProfile, PromptTemplate, QuestionBank
 from . import llama_service
 
 AI_HELP_DEFAULTS = [
@@ -425,6 +425,13 @@ def api_transcript(request, session_id):
             speaker_type=entry.get("type", TranscriptEntry.TYPE_MIC),
             speaker_name=entry.get("speaker_name", ""),
         )
+        OriginalTranscript.all_objects.create(
+            session=session,
+            transcript_entry=obj,
+            content=content,
+            speaker_type=obj.speaker_type,
+            speaker_name=obj.speaker_name,
+        )
         created.append({"id": str(obj.id), "content": obj.content})
 
     return JsonResponse({"saved": len(created), "entries": created})
@@ -774,6 +781,13 @@ def api_transcribe(request, session_id):
         speaker_type=speaker,
         speaker_name=speaker_name,
     )
+    OriginalTranscript.all_objects.create(
+        session=session,
+        transcript_entry=entry,
+        content=text,
+        speaker_type=speaker,
+        speaker_name=speaker_name,
+    )
     return JsonResponse({"text": text, "id": str(entry.id), "speaker": speaker, "speaker_name": speaker_name})
 
 
@@ -945,6 +959,12 @@ def api_add_note(request, session_id):
         return JsonResponse({"error": "content required"}, status=400)
     entry = TranscriptEntry.objects.create(
         session=session,
+        content=content,
+        speaker_type=TranscriptEntry.TYPE_NOTE,
+    )
+    OriginalTranscript.all_objects.create(
+        session=session,
+        transcript_entry=entry,
         content=content,
         speaker_type=TranscriptEntry.TYPE_NOTE,
     )
@@ -2233,8 +2253,15 @@ def api_mock_question(request, session_id):
             return
 
         q_text = "".join(full_content).strip()
-        TranscriptEntry.objects.create(
+        _te = TranscriptEntry.objects.create(
             session=session,
+            content=q_text,
+            speaker_type=TranscriptEntry.TYPE_SYSTEM,
+            speaker_name="AI Interviewer",
+        )
+        OriginalTranscript.all_objects.create(
+            session=session,
+            transcript_entry=_te,
             content=q_text,
             speaker_type=TranscriptEntry.TYPE_SYSTEM,
             speaker_name="AI Interviewer",
