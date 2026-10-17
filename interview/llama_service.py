@@ -1,13 +1,22 @@
 """LlamaIndex Cloud document service using the official llama-cloud SDK."""
 import time
 from django.conf import settings
-from llama_cloud import LlamaCloud
-from llama_cloud._exceptions import NotFoundError
+
+try:
+    from llama_cloud import LlamaCloud
+    from llama_cloud._exceptions import NotFoundError
+    _LLAMA_AVAILABLE = True
+except ImportError:
+    LlamaCloud = None  # type: ignore[assignment,misc]
+    NotFoundError = Exception  # type: ignore[assignment,misc]
+    _LLAMA_AVAILABLE = False
 
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".doc", ".txt", ".xlsx", ".xls", ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".go", ".rb", ".rs", ".cpp", ".c", ".h", ".cs", ".md"}
 
 
-def _client() -> LlamaCloud:
+def _client() -> "LlamaCloud":
+    if not _LLAMA_AVAILABLE:
+        raise ImportError("llama-cloud package is not installed. Add llama-cloud to requirements.txt.")
     return LlamaCloud(api_key=settings.LLAMAPARSE_API_KEY)
 
 

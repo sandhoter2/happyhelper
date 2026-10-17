@@ -259,7 +259,7 @@ def live_session(request, session_id):
 def session_detail(request, session_id):
     session = get_object_or_404(InterviewSession, id=session_id, owner=request.user)
     transcripts = session.transcripts.all()
-    ai_messages = session.ai_messages.all()
+    ai_messages = session.ai_messages.exclude(trigger_text="[Detailed Feedback]").all()
     return render(
         request,
         "interview/session_detail.html",
@@ -692,7 +692,7 @@ def api_chat(request, session_id):
         except Exception as primary_exc:
             logger.warning("Primary provider (%s) failed: %s — trying Groq fallback", provider, primary_exc)
             fallback_client, fallback_model = _get_groq_fallback_client()
-            if fallback_client and fallback_client is not active_client:
+            if fallback_client and provider != "groq":
                 try:
                     for delta in _run_stream(fallback_client, fallback_model):
                         full_content.append(delta)
