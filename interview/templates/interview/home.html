@@ -251,7 +251,7 @@ body.os-mac #dlMacBtn small, body.os-win #dlWinBtn small { color: var(--on-brand
                 </td>
                 <td class="muted-cell">{% if s.session_type == "meeting" %}Meeting{% else %}Interview{% endif %}</td>
                 <td class="muted-cell">{% if s.ended_at %}{{ s.created_at|timesince:s.ended_at }}{% else %}—{% endif %}</td>
-                <td class="muted-cell">{{ s.ai_messages.count }}</td>
+                <td class="muted-cell">{{ s.ai_msg_count }}</td>
                 <td class="muted-cell">{{ s.created_at|date:"M j, Y" }}</td>
                 <td>
                   {% if s.status == "active" %}<span class="badge badge-active">Live</span>
@@ -300,8 +300,8 @@ body.os-mac #dlMacBtn small, body.os-win #dlWinBtn small { color: var(--on-brand
             <div class="session-card-meta">
               {% if s.session_type == "meeting" %}Meeting{% else %}Interview{% endif %},
               {{ s.created_at|date:"M j, Y" }}<br>
-              {{ s.transcripts.count }} transcript line{{ s.transcripts.count|pluralize }},
-              {{ s.ai_messages.count }} answer{{ s.ai_messages.count|pluralize }}
+              {{ s.transcript_cnt }} transcript line{{ s.transcript_cnt|pluralize }},
+              {{ s.ai_msg_count }} answer{{ s.ai_msg_count|pluralize }}
             </div>
             <div class="session-card-actions">
               {% if s.status != "ended" %}

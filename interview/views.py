@@ -171,11 +171,17 @@ def signup_view(request):
 def home(request):
     if not request.user.is_authenticated:
         return render(request, "interview/landing.html")
-    sessions = InterviewSession.objects.filter(owner=request.user).select_related("folder")
+    from django.db.models import Count
+    sessions = InterviewSession.objects.filter(owner=request.user)\
+        .select_related("folder")\
+        .annotate(
+            ai_msg_count=Count('ai_messages', distinct=True),
+            transcript_cnt=Count('transcripts', distinct=True),
+        )
     active_count = sessions.filter(status=InterviewSession.STATUS_ACTIVE).count()
     ended_count = sessions.filter(status=InterviewSession.STATUS_ENDED).count()
-    total_transcripts = TranscriptEntry.objects.filter(session__in=sessions).count()
-    total_ai = AIMessage.objects.filter(session__in=sessions).count()
+    total_transcripts = sum(s.transcript_cnt for s in sessions)
+    total_ai = sum(s.ai_msg_count for s in sessions)
     _, sessions_used, session_limit = _check_session_limit(request.user)
     profile = getattr(request.user, "profile", None)
     sessions_remaining = (session_limit - sessions_used) if session_limit else None
@@ -245,6 +251,8 @@ def new_session(request):
 @login_required
 def live_session(request, session_id):
     session = get_object_or_404(InterviewSession, id=session_id, owner=request.user)
+    if session.status == InterviewSession.STATUS_ENDED:
+        return redirect("session_detail", session_id=session_id)
     transcripts = session.transcripts.all()
     ai_messages = session.ai_messages.all()
     return render(
@@ -259,10 +267,22 @@ def session_detail(request, session_id):
     session = get_object_or_404(InterviewSession, id=session_id, owner=request.user)
     transcripts = session.transcripts.all()
     ai_messages = session.ai_messages.exclude(trigger_text="[Detailed Feedback]").all()
+    existing_feedback_msg = session.ai_messages.filter(trigger_text="[Detailed Feedback]").order_by("-created_at").first()
+    existing_feedback = None
+    if existing_feedback_msg:
+        try:
+            existing_feedback = existing_feedback_msg.content
+        except Exception:
+            pass
     return render(
         request,
         "interview/session_detail.html",
-        {"session": session, "transcripts": transcripts, "ai_messages": ai_messages},
+        {
+            "session": session,
+            "transcripts": transcripts,
+            "ai_messages": ai_messages,
+            "existing_feedback_json": existing_feedback,
+        },
     )
 
 
@@ -607,6 +627,23 @@ def api_conversation_helper(request, session_id):
     )
 
 
+_RATE_LIMIT_STORE: dict = {}  # {user_id: last_request_ts}
+_RATE_LIMIT_SECONDS = 2  # minimum seconds between chat requests per user
+
+def _check_rate_limit(user_id):
+    """Return True if request is allowed, False if too fast."""
+    import time
+    now = time.monotonic()
+    last = _RATE_LIMIT_STORE.get(user_id, 0)
+    if now - last < _RATE_LIMIT_SECONDS:
+        return False
+    _RATE_LIMIT_STORE[user_id] = now
+    # Prevent unbounded growth
+    if len(_RATE_LIMIT_STORE) > 10000:
+        _RATE_LIMIT_STORE.clear()
+    return True
+
+
 @csrf_exempt
 def api_chat(request, session_id):
     """Stream Claude's answer as Server-Sent Events."""
@@ -617,6 +654,9 @@ def api_chat(request, session_id):
     ext_token = request.headers.get('X-Ext-Token', '').strip()
     profile = _profile_for_token(ext_token) if ext_token else None
     user = profile.user if profile else request.user
+
+    if not _check_rate_limit(user.id):
+        return JsonResponse({"error": "Too many requests — please wait a moment."}, status=429)
     session = get_object_or_404(InterviewSession, id=session_id, owner=user)
 
     try:
@@ -1358,7 +1398,11 @@ def settings_page(request):
             with open(env_path, "w") as f:
                 for k, v in env_dict.items():
                     f.write(f"{k}={v}\n")
-            msg = ("success", "Settings saved successfully.")
+            on_render = bool(os.environ.get("RENDER"))
+            if on_render:
+                msg = ("warn", "Settings saved to .env, but on Render these changes are ignored. Set API keys in the Render dashboard → Environment instead.")
+            else:
+                msg = ("success", "Settings saved successfully.")
         except Exception as exc:
             msg = ("error", f"Failed to save: {exc}")
 
@@ -2288,6 +2332,20 @@ def api_session_feedback(request, session_id):
     if not client:
         return JsonResponse({"error": "No AI key set."}, status=500)
 
+    try:
+        body = json.loads(request.body) if request.body else {}
+    except json.JSONDecodeError:
+        body = {}
+    force = body.get("force", False)
+
+    if not force:
+        existing = session.ai_messages.filter(trigger_text="[Detailed Feedback]").order_by("-created_at").first()
+        if existing:
+            try:
+                return JsonResponse(json.loads(existing.content))
+            except (json.JSONDecodeError, TypeError):
+                pass
+
     transcripts = list(session.transcripts.order_by("created_at"))
     if not transcripts:
         return JsonResponse({"error": "No transcript to analyze"}, status=400)
@@ -2452,8 +2510,54 @@ def api_document_upload(request):
         folder=folder,
         original_filename=filename,
         size_bytes=size_bytes,
-        status=UserDocument.STATUS_READY,
+        status=UserDocument.STATUS_PROCESSING,
     )
+
+    # Save the file to storage and parse its text content
+    try:
+        doc.file.save(filename, upload, save=False)
+        parsed_text = ""
+        page_count = 0
+        TEXT_EXTS = {".txt", ".md", ".py", ".js", ".ts", ".jsx", ".tsx", ".java",
+                     ".go", ".rb", ".rs", ".cpp", ".c", ".h", ".cs"}
+        if ext in TEXT_EXTS:
+            upload.seek(0)
+            parsed_text = upload.read().decode("utf-8", errors="replace")
+            page_count = max(1, len(parsed_text) // 3000)
+        elif ext == ".pdf":
+            try:
+                import pypdf
+                upload.seek(0)
+                reader = pypdf.PdfReader(upload)
+                page_count = len(reader.pages)
+                parsed_text = "\n".join(
+                    p.extract_text() or "" for p in reader.pages
+                )
+            except ImportError:
+                pass
+            except Exception as pdf_exc:
+                logger.warning("PDF parse error for %s: %s", filename, pdf_exc)
+        elif ext == ".docx":
+            try:
+                import docx
+                upload.seek(0)
+                document = docx.Document(upload)
+                parsed_text = "\n".join(p.text for p in document.paragraphs)
+                page_count = max(1, len(parsed_text) // 3000)
+            except ImportError:
+                pass
+            except Exception as docx_exc:
+                logger.warning("DOCX parse error for %s: %s", filename, docx_exc)
+
+        doc.parsed_text = parsed_text[:500_000]  # cap at ~500k chars
+        doc.page_count = page_count
+        doc.status = UserDocument.STATUS_READY
+        doc.save()
+    except Exception as exc:
+        logger.exception("Document upload/parse failed for %s: %s", filename, exc)
+        doc.status = UserDocument.STATUS_ERROR
+        doc.error_message = str(exc)[:500]
+        doc.save()
 
     return JsonResponse({
         "id": str(doc.id),

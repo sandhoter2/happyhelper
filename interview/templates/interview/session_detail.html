@@ -141,13 +141,25 @@
   <div class="card" id="feedbackSection" style="margin-bottom:20px">
     <div class="section-title" style="display:flex;align-items:center;justify-content:space-between">
       <span>Detailed feedback</span>
-      <button class="btn btn-primary btn-sm" id="feedbackBtn" onclick="generateFeedback()">✨ Generate Feedback</button>
+      <div style="display:flex;gap:8px">
+        {% if existing_feedback_json %}<button class="btn btn-secondary btn-sm" id="regenBtn" onclick="generateFeedback(true)">🔄 Regenerate</button>{% endif %}
+        <button class="btn btn-primary btn-sm" id="feedbackBtn" {% if existing_feedback_json %}style="display:none"{% endif %} onclick="generateFeedback()">✨ Generate Feedback</button>
+      </div>
     </div>
     <div id="feedbackLoading" style="display:none;padding:20px;text-align:center;color:var(--text3);font-family:var(--mono);font-size:13px">
       ⏳ Analyzing your answers…
     </div>
-    <div id="feedbackContent" style="display:none"></div>
+    <div id="feedbackContent" {% if not existing_feedback_json %}style="display:none"{% endif %}></div>
   </div>
+  {% if existing_feedback_json %}
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      try {
+        renderFeedback({{ existing_feedback_json|safe }});
+      } catch(e) { console.warn('Could not render existing feedback:', e); }
+    });
+  </script>
+  {% endif %}
   {% endif %}
 
   <div class="detail-grid">
@@ -305,12 +317,13 @@ function deleteSessionAndRedirect(id, title) {
   });
 }
 
-function generateFeedback() {
+function generateFeedback(force) {
   const btn = document.getElementById('feedbackBtn');
+  const regenBtn = document.getElementById('regenBtn');
   const loading = document.getElementById('feedbackLoading');
   const content = document.getElementById('feedbackContent');
-  btn.disabled = true;
-  btn.textContent = '⏳ Generating…';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Generating…'; }
+  if (regenBtn) { regenBtn.disabled = true; regenBtn.textContent = '⏳ Generating…'; }
   loading.style.display = 'block';
   content.style.display = 'none';
   content.innerHTML = '';
@@ -318,13 +331,13 @@ function generateFeedback() {
   fetch('/api/session/{{ session.id }}/feedback/', {
     method: 'POST',
     headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken')},
-    body: JSON.stringify({})
+    body: JSON.stringify(force ? {force: true} : {})
   }).then(res => {
     if (!res.ok) {
       return res.text().then(t => {
         loading.style.display = 'none';
-        btn.disabled = false;
-        btn.textContent = '✨ Generate Feedback';
+        if (btn) { btn.disabled = false; btn.textContent = '✨ Generate Feedback'; }
+        if (regenBtn) { regenBtn.disabled = false; regenBtn.textContent = '🔄 Regenerate'; }
         let msg = t;
         try { msg = JSON.parse(t).error || t; } catch {}
         toast('Error: ' + msg, 'error');
@@ -332,11 +345,25 @@ function generateFeedback() {
     }
     return res.json().then(data => {
       loading.style.display = 'none';
-      btn.disabled = false;
-      btn.textContent = '🔄 Regenerate';
+      if (btn) { btn.style.display = 'none'; }
+      if (regenBtn) { regenBtn.style.display = ''; regenBtn.disabled = false; regenBtn.textContent = '🔄 Regenerate'; }
+      else {
+        // First time generating — create regen button
+        const regenNew = document.createElement('button');
+        regenNew.id = 'regenBtn';
+        regenNew.className = 'btn btn-secondary btn-sm';
+        regenNew.textContent = '🔄 Regenerate';
+        regenNew.onclick = () => generateFeedback(true);
+        document.querySelector('#feedbackSection .section-title div').prepend(regenNew);
+      }
       renderFeedback(data);
     });
-  }).catch(e => { loading.style.display='none'; toast('Error: '+e.message,'error'); btn.disabled=false; btn.textContent='✨ Generate Feedback'; });
+  }).catch(e => {
+    loading.style.display='none';
+    toast('Error: '+e.message,'error');
+    if (btn) { btn.disabled=false; btn.textContent='✨ Generate Feedback'; }
+    if (regenBtn) { regenBtn.disabled=false; regenBtn.textContent='🔄 Regenerate'; }
+  });
 }
 
 function esc(s) {

@@ -2888,19 +2888,22 @@ function stopMic() {
   micStream = null;
   if (micRecognition) { micRecognition.onend = null; micRecognition.stop(); micRecognition = null; }
 
-  // Auto-save any unsaved spoken text before stopping (manual mode accumulates without saving)
+  // Auto-save any unsaved spoken text before stopping.
+  // In manual mode each speech final was already saved individually — skip to avoid duplicates.
   const qi = document.getElementById('questionInput');
   const fi = (typeof _doc === 'function') ? _doc().getElementById('fQuestionInput') : null;
   const inputVal = (qi ? qi.value : '').trim() || (fi ? fi.value : '').trim();
-  const textToSave = micManualAccum.trim() || inputVal;
-  if (textToSave) {
-    saveMicToServer(textToSave);
-    addTranscriptEntryUI(textToSave, 'microphone');
-    if (qi) qi.value = '';
-    if (fi) fi.value = '';
-    micManualAccum = '';
-    micLastCommitted = '';
+  if (transcribeMode !== 'manual') {
+    const textToSave = micManualAccum.trim() || inputVal;
+    if (textToSave) {
+      saveMicToServer(textToSave);
+      addTranscriptEntryUI(textToSave, 'microphone');
+    }
   }
+  if (qi) qi.value = '';
+  if (fi) fi.value = '';
+  micManualAccum = '';
+  micLastCommitted = '';
 
   if (interimEntry) interimEntry.style.display = 'none';
   if (interimText) interimText.textContent = 'Transcribing…';
