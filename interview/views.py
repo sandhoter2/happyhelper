@@ -59,6 +59,8 @@ def _seed_default_templates(user):
 
 def _check_session_limit(user):
     """Return (ok, sessions_used, limit). ok=False means limit reached."""
+    if user.is_staff:
+        return True, 0, None
     try:
         profile = user.profile
     except UserProfile.DoesNotExist:
