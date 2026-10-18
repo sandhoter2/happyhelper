@@ -152,10 +152,12 @@
     <div id="feedbackContent" {% if not existing_feedback_json %}style="display:none"{% endif %}></div>
   </div>
   {% if existing_feedback_json %}
+  <script id="existing-feedback-data" type="application/json">{{ existing_feedback_json }}</script>
   <script>
     document.addEventListener('DOMContentLoaded', function() {
       try {
-        renderFeedback({{ existing_feedback_json|safe }});
+        var raw = document.getElementById('existing-feedback-data').textContent;
+        renderFeedback(JSON.parse(raw));
       } catch(e) { console.warn('Could not render existing feedback:', e); }
     });
   </script>

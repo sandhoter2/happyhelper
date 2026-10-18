@@ -182,8 +182,13 @@ def home(request):
         )
     active_count = sessions.filter(status=InterviewSession.STATUS_ACTIVE).count()
     ended_count = sessions.filter(status=InterviewSession.STATUS_ENDED).count()
-    total_transcripts = sum(s.transcript_cnt for s in sessions)
-    total_ai = sum(s.ai_msg_count for s in sessions)
+    from django.db.models import Sum
+    aggregates = sessions.aggregate(
+        total_transcripts=Sum('transcript_cnt'),
+        total_ai=Sum('ai_msg_count'),
+    )
+    total_transcripts = aggregates['total_transcripts'] or 0
+    total_ai = aggregates['total_ai'] or 0
     _, sessions_used, session_limit = _check_session_limit(request.user)
     profile = getattr(request.user, "profile", None)
     sessions_remaining = (session_limit - sessions_used) if session_limit else None
@@ -270,11 +275,13 @@ def session_detail(request, session_id):
     transcripts = session.transcripts.all()
     ai_messages = session.ai_messages.exclude(trigger_text="[Detailed Feedback]").all()
     existing_feedback_msg = session.ai_messages.filter(trigger_text="[Detailed Feedback]").order_by("-created_at").first()
-    existing_feedback = None
+    existing_feedback_json = None
     if existing_feedback_msg:
         try:
-            existing_feedback = existing_feedback_msg.content
-        except Exception:
+            # Validate it's real JSON and re-serialize with JS-safe escaping
+            parsed = json.loads(existing_feedback_msg.content)
+            existing_feedback_json = json.dumps(parsed, ensure_ascii=True)
+        except (json.JSONDecodeError, TypeError):
             pass
     return render(
         request,
@@ -283,7 +290,7 @@ def session_detail(request, session_id):
             "session": session,
             "transcripts": transcripts,
             "ai_messages": ai_messages,
-            "existing_feedback_json": existing_feedback,
+            "existing_feedback_json": existing_feedback_json,
         },
     )
 
@@ -640,9 +647,12 @@ def _check_rate_limit(user_id):
     if now - last < _RATE_LIMIT_SECONDS:
         return False
     _RATE_LIMIT_STORE[user_id] = now
-    # Prevent unbounded growth
+    # Evict oldest half when store gets large; keep the entry we just wrote
     if len(_RATE_LIMIT_STORE) > 10000:
-        _RATE_LIMIT_STORE.clear()
+        cutoff = now - 300  # drop entries older than 5 minutes
+        stale = [k for k, v in _RATE_LIMIT_STORE.items() if v < cutoff]
+        for k in stale:
+            _RATE_LIMIT_STORE.pop(k, None)
     return True
 
 
@@ -2561,6 +2571,7 @@ def api_document_upload(request):
         doc.error_message = str(exc)[:500]
         doc.save()
 
+    http_status = 202 if doc.status != UserDocument.STATUS_ERROR else 500
     return JsonResponse({
         "id": str(doc.id),
         "filename": doc.original_filename,
@@ -2568,7 +2579,7 @@ def api_document_upload(request):
         "size_bytes": doc.size_bytes,
         "page_count": doc.page_count,
         "error_message": doc.error_message,
-    }, status=202)
+    }, status=http_status)
 
 
 @login_required
