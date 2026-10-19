@@ -24,7 +24,7 @@ class UserProfile(models.Model):
         (PLAN_PRO, "Pro"),
         (PLAN_TEAM, "Team"),
     ]
-    FREE_SESSION_LIMIT = None  # temporarily unlimited for all plans
+    FREE_SESSION_LIMIT = 50
 
     # Document context char limits per plan
     DOC_CONTEXT_FREE_MAX  = 6_000   # ~1 500 tokens
