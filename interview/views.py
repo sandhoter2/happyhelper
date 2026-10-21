@@ -59,15 +59,18 @@ def _seed_default_templates(user):
 
 def _check_session_limit(user):
     """Return (ok, sessions_used, limit). ok=False means limit reached."""
-    if user.is_staff:
-        return True, 0, None
+    if user.is_staff or user.is_superuser:
+        used = InterviewSession.objects.filter(owner=user).count()
+        return True, used, None
     try:
         profile = user.profile
     except UserProfile.DoesNotExist:
-        return True, 0, None
+        used = InterviewSession.objects.filter(owner=user).count()
+        return True, used, None
     limit = profile.session_limit
     if limit is None:
-        return True, 0, None
+        used = InterviewSession.objects.filter(owner=user).count()
+        return True, used, None
     used = InterviewSession.objects.filter(owner=user).count()
     return used < limit, used, limit
 
