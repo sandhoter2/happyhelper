@@ -278,7 +278,7 @@ class UserDocumentAdmin(admin.ModelAdmin):
     list_display = ("original_filename", "owner", "status", "size_bytes", "page_count", "created_at")
     list_filter = ("status",)
     search_fields = ("original_filename", "owner__username")
-    readonly_fields = ("id", "created_at", "updated_at", "llama_job_id", "parsed_text")
+    readonly_fields = ("id", "created_at", "updated_at", "parsed_text")
     ordering = ("-created_at",)
 
 
