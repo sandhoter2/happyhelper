@@ -1701,9 +1701,32 @@ body.tc-select-mode .transcript-entry.selected::before, .transcript-entry.select
       <div style="font-size:12px;font-weight:700;color:var(--text3);margin-bottom:8px">Participants</div>
       <div id="participantsList" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px"></div>
       <div style="display:flex;flex-wrap:wrap;gap:6px;min-width:0">
-        <input id="newParticipantName" type="text" class="form-control" aria-label="Participant name" placeholder="Name" style="font-size:12px;padding:4px 8px;flex:1 1 110px;min-width:110px"
+        <input id="newParticipantName" type="text" class="form-control" aria-label="Participant name"
+               placeholder="Name" list="participantNameSuggestions" autocomplete="name"
+               style="font-size:12px;padding:4px 8px;flex:1 1 110px;min-width:110px"
                onkeydown="if(event.key==='Enter')addParticipant()">
-        <input id="newParticipantRole" type="text" class="form-control" aria-label="Participant role (optional)" placeholder="Role (optional)" style="font-size:12px;padding:4px 8px;width:120px;flex-shrink:0">
+        <datalist id="participantNameSuggestions">
+          <option value="Interviewer">
+          <option value="Hiring Manager">
+          <option value="Recruiter">
+          <option value="Candidate">
+          <option value="Technical Lead">
+          <option value="Engineering Manager">
+          <option value="HR">
+          <option value="Panel Member">
+        </datalist>
+        <input id="newParticipantRole" type="text" class="form-control" aria-label="Participant role (optional)"
+               placeholder="Role (optional)" list="participantRoleSuggestions"
+               style="font-size:12px;padding:4px 8px;width:120px;flex-shrink:0">
+        <datalist id="participantRoleSuggestions">
+          <option value="Interviewer">
+          <option value="Hiring Manager">
+          <option value="Recruiter">
+          <option value="Candidate">
+          <option value="Technical Lead">
+          <option value="Engineering Manager">
+          <option value="HR">
+        </datalist>
         <button class="btn btn-primary btn-xs" onclick="addParticipant()" style="white-space:nowrap;flex-shrink:0">Add</button>
         <button class="btn btn-ghost btn-xs" id="scanScreenBtn" onclick="scanTeamsParticipants()" title="Read participant names from your screen" style="white-space:nowrap;flex-shrink:0;border-color:var(--border2)">{% include "interview/_icon.html" with name="users" %} Scan screen</button>
       </div>
@@ -5453,6 +5476,22 @@ if (SESSION_TYPE === 'meeting') {
     const d = await r.json();
     participants = d.participants || [];
     renderParticipants();
+    _seedParticipantDatalist(participants.map(p => p.name));
+  }
+
+  // Inject extra names into the datalist so they appear as autocomplete suggestions
+  function _seedParticipantDatalist(names) {
+    const dl = document.getElementById('participantNameSuggestions');
+    if (!dl) return;
+    const existing = new Set([...dl.options].map(o => o.value.toLowerCase()));
+    names.forEach(n => {
+      if (n && !existing.has(n.toLowerCase())) {
+        const opt = document.createElement('option');
+        opt.value = n;
+        dl.appendChild(opt);
+        existing.add(n.toLowerCase());
+      }
+    });
   }
 
   window.addParticipant = async function addParticipant() {
@@ -5564,6 +5603,9 @@ if (SESSION_TYPE === 'meeting') {
         toast('Nothing detected — make sure the participant list or names are visible on screen', 'info', 5000);
         return;
       }
+
+      // Seed datalist with scanned names so typing auto-suggests them
+      _seedParticipantDatalist(allNames);
 
       // Add any new participants
       let added = 0;
