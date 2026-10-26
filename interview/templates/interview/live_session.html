@@ -3139,7 +3139,8 @@ function _startTVDeepgram(audioTracks, dgKey) {
 
   const wsUrl = `wss://api.deepgram.com/v1/listen` +
     `?encoding=linear16&sample_rate=16000&channels=1` +
-    `&model=nova-2&interim_results=true&endpointing=300&language=en`;
+    `&model=nova-2-general&interim_results=true&endpointing=100` +
+    `&utterance_end_ms=1000&smart_format=true&no_delay=true&language=en`;
 
   let ws;
   try { ws = new WebSocket(wsUrl, ['token', dgKey]); }
@@ -3187,14 +3188,26 @@ function _startTVDeepgram(audioTracks, dgKey) {
     if (!text) return;
 
     if (data.is_final) {
+      // Hide the interim strip and commit the final result
       _tvInterimText = '';
-      setStatus('🎙 Real-time — listening…');
+      if (interimEntry) {
+        interimEntry.style.display = 'none';
+        interimEntry.classList.remove('sys');
+      }
       const speakerName = _tvActiveSpeaker || 'Interviewer';
       _tvSaveEntry(text, speakerName);
     } else {
-      // Show interim result live — no lag to the user at all
+      // Show interim words live in the transcript strip — words appear as spoken
       _tvInterimText = text;
-      setStatus('🎙 ' + text + '…');
+      if (interimEntry && interimText && interimLabel) {
+        interimLabel.textContent = _tvActiveSpeaker || 'Interviewer';
+        interimText.textContent  = text;
+        interimEntry.classList.add('sys');
+        interimEntry.style.display = 'flex';
+        // Auto-scroll transcript to keep interim visible
+        const panel = document.getElementById('transcriptPanel');
+        if (panel && !_transcriptScrollLocked) panel.scrollTop = panel.scrollHeight;
+      }
     }
   };
 
@@ -3340,6 +3353,7 @@ function stopTheirVoice() {
   if (_tvProcessor) { try { _tvProcessor.disconnect(); } catch (_) {} _tvProcessor = null; }
   if (_tvAudioCtx)  { try { _tvAudioCtx.close();       } catch (_) {} _tvAudioCtx  = null; }
   _tvInterimText = '';
+  if (interimEntry) { interimEntry.style.display = 'none'; interimEntry.classList.remove('sys'); }
   // Clean up fallback MediaRecorder
   if (_tvAudioLoopTimer) { clearTimeout(_tvAudioLoopTimer); _tvAudioLoopTimer = null; }
   if (_tvAudioRecorder && _tvAudioRecorder.state !== 'inactive') {
