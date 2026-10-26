@@ -33,6 +33,7 @@ urlpatterns = [
     path("api/session/<uuid:session_id>/meeting-summary/", views.api_meeting_summary, name="api_meeting_summary"),
     path("api/build-conversation/", views.api_build_conversation, name="api_build_conversation"),
     path("api/config/", views.api_config, name="api_config"),
+    path("api/deepgram-token/", views.api_deepgram_token, name="api_deepgram_token"),
     path("api/regenerate-token/", views.api_regenerate_token, name="api_regenerate_token"),
     # Stats
     path("api/stats/", views.api_stats, name="api_stats"),

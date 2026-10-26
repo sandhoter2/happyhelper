@@ -161,6 +161,7 @@ GROQ_VISION_MODEL = os.environ.get("GROQ_VISION_MODEL", "meta-llama/llama-4-scou
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 VISION_MODEL = os.environ.get("VISION_MODEL", "openai/gpt-4o-mini")
+DEEPGRAM_API_KEY = os.environ.get("DEEPGRAM_API_KEY", "")
 
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"

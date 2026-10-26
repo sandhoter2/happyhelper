@@ -3106,26 +3106,126 @@ async function _tvSaveEntry(text, speakerName) {
   } catch (_) {}
 }
 
-// ── Audio mode (primary) ──────────────────────────────────────────────────────
-// Uses explicit stop→transcribe→restart loop instead of timeslice, because
-// MediaRecorder.start(timeslice) for captured tab audio silently stops in
-// Chrome after the first event on some streams. Each 6 s cycle:
-//   1. Start a fresh recorder
-//   2. After 6 s call .stop()
-//   3. onstop: collect blob, POST to Whisper, save entry, schedule next cycle
-let _tvAudioLoopTimer = null;
+// ── Audio mode (primary) ─ Deepgram real-time WebSocket streaming ─────────────
+// Architecture:
+//   getDisplayMedia audio → AudioContext (16 kHz) → ScriptProcessor →
+//   Int16 PCM chunks → WebSocket → Deepgram Nova-2 → interim/final transcripts
+//
+// Deepgram gives ~200 ms latency. Interim results show immediately in the status
+// bar; final results are saved and fed into the AI trigger.
+// Falls back to MediaRecorder + Groq Whisper if Deepgram key is absent.
+
+let _tvAudioLoopTimer = null;   // kept for fallback path
+let _tvDeepgramWS     = null;   // active WebSocket, if any
+let _tvAudioCtx       = null;   // AudioContext for PCM conversion
+let _tvProcessor      = null;   // ScriptProcessorNode
+let _tvInterimText    = '';     // last interim string (shown live in status)
 
 function _startTVAudio(audioTracks) {
   if (!theirVoiceActive || !audioTracks.length) return;
   _tvAudioMime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
-  setStatus('🎙 Capturing Teams audio…');
-  _tvAudioLoop();
+  setStatus('🎙 Connecting real-time transcription…');
+  // Try Deepgram first; fall back to Groq Whisper chunks if no key available
+  fetch('/api/deepgram-token/', { headers: { 'X-CSRFToken': getCookie('csrftoken') } })
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(({ key }) => {
+      if (key) _startTVDeepgram(audioTracks, key);
+      else     _tvAudioLoop();
+    })
+    .catch(() => _tvAudioLoop());
 }
 
+function _startTVDeepgram(audioTracks, dgKey) {
+  if (!theirVoiceActive) return;
+
+  const wsUrl = `wss://api.deepgram.com/v1/listen` +
+    `?encoding=linear16&sample_rate=16000&channels=1` +
+    `&model=nova-2&interim_results=true&endpointing=300&language=en`;
+
+  let ws;
+  try { ws = new WebSocket(wsUrl, ['token', dgKey]); }
+  catch (e) { _tvAudioLoop(); return; }
+
+  _tvDeepgramWS = ws;
+  let audioCtx, processor, source;
+
+  ws.onopen = () => {
+    setStatus('🎙 Real-time — listening…');
+
+    // Build a 16 kHz audio pipeline from the captured tracks
+    try {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+      _tvAudioCtx = audioCtx;
+      const audioStream = new MediaStream(audioTracks);
+      source = audioCtx.createMediaStreamSource(audioStream);
+      // ScriptProcessor (4096 samples @ 16 kHz = ~256 ms per callback)
+      processor = audioCtx.createScriptProcessor(4096, 1, 1);
+      _tvProcessor = processor;
+      source.connect(processor);
+      processor.connect(audioCtx.destination);
+
+      processor.onaudioprocess = (e) => {
+        if (!theirVoiceActive || !_tvDeepgramWS || ws.readyState !== WebSocket.OPEN) return;
+        const f32 = e.inputBuffer.getChannelData(0);
+        const i16 = new Int16Array(f32.length);
+        for (let i = 0; i < f32.length; i++) {
+          i16[i] = Math.max(-32768, Math.min(32767, f32[i] * 32767 | 0));
+        }
+        ws.send(i16.buffer);
+      };
+    } catch (err) {
+      ws.close();
+      _tvAudioLoop();
+    }
+  };
+
+  ws.onmessage = (ev) => {
+    let data;
+    try { data = JSON.parse(ev.data); } catch (_) { return; }
+    if (data.type !== 'Results') return;
+    const alt  = data.channel?.alternatives?.[0];
+    const text = (alt?.transcript || '').trim();
+    if (!text) return;
+
+    if (data.is_final) {
+      _tvInterimText = '';
+      setStatus('🎙 Real-time — listening…');
+      const speakerName = _tvActiveSpeaker || 'Interviewer';
+      _tvSaveEntry(text, speakerName);
+    } else {
+      // Show interim result live — no lag to the user at all
+      _tvInterimText = text;
+      setStatus('🎙 ' + text + '…');
+    }
+  };
+
+  ws.onerror = () => {
+    _tvDeepgramWS = null;
+    if (theirVoiceActive) {
+      setStatus('🎙 Reconnecting…');
+      setTimeout(() => _tvAudioLoop(), 800);   // fall back to Groq chunks
+    }
+  };
+
+  ws.onclose = () => {
+    _tvDeepgramWS = null;
+    if (theirVoiceActive) {
+      // Try to reconnect with Deepgram once, then fall back
+      setTimeout(() => {
+        if (!theirVoiceActive) return;
+        fetch('/api/deepgram-token/', { headers: { 'X-CSRFToken': getCookie('csrftoken') } })
+          .then(r => r.ok ? r.json() : Promise.reject())
+          .then(({ key }) => key ? _startTVDeepgram(audioTracks, key) : _tvAudioLoop())
+          .catch(() => _tvAudioLoop());
+      }, 1500);
+    }
+  };
+}
+
+// ── Fallback: MediaRecorder → Groq Whisper (used when Deepgram key absent) ───
 function _tvAudioLoop() {
   if (!theirVoiceActive) return;
 
-  // Grab the freshest live audio tracks each cycle
   const liveTracks = theirVoiceStream ? theirVoiceStream.getAudioTracks().filter(t => t.readyState === 'live') : [];
   if (!liveTracks.length) {
     setStatus('📝 Audio track ended — caption mode');
@@ -3141,17 +3241,11 @@ function _tvAudioLoop() {
   _tvAudioRecorder = recorder;
   const chunks = [];
   recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
-
-  recorder.onerror = () => {
-    if (theirVoiceActive) setTimeout(_tvAudioLoop, 500);
-  };
+  recorder.onerror = () => { if (theirVoiceActive) setTimeout(_tvAudioLoop, 500); };
 
   recorder.onstop = () => {
     if (!theirVoiceActive) return;
-    // Pipeline: start next recording cycle IMMEDIATELY so there is no dead-air gap.
-    // Transcription of this chunk runs in parallel in the background.
     _tvAudioLoop();
-
     const blob = new Blob(chunks, { type: _tvAudioMime });
     if (blob.size < 100) return;
     (async () => {
@@ -3172,7 +3266,6 @@ function _tvAudioLoop() {
   };
 
   recorder.start();
-  // Always capture in real-time short chunks; AI submission interval is separate
   _tvAudioLoopTimer = setTimeout(() => {
     if (recorder.state === 'recording') recorder.stop();
   }, _TV_CHUNK_MS);
@@ -3235,6 +3328,16 @@ async function _captureFrame(heightFraction) {
 
 function stopTheirVoice() {
   theirVoiceActive = false;
+  // Close Deepgram WebSocket
+  if (_tvDeepgramWS) {
+    try { _tvDeepgramWS.close(); } catch (_) {}
+    _tvDeepgramWS = null;
+  }
+  // Tear down AudioContext / ScriptProcessor
+  if (_tvProcessor) { try { _tvProcessor.disconnect(); } catch (_) {} _tvProcessor = null; }
+  if (_tvAudioCtx)  { try { _tvAudioCtx.close();       } catch (_) {} _tvAudioCtx  = null; }
+  _tvInterimText = '';
+  // Clean up fallback MediaRecorder
   if (_tvAudioLoopTimer) { clearTimeout(_tvAudioLoopTimer); _tvAudioLoopTimer = null; }
   if (_tvAudioRecorder && _tvAudioRecorder.state !== 'inactive') {
     try { _tvAudioRecorder.stop(); } catch (_) {}

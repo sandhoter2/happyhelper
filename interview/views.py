@@ -773,6 +773,16 @@ def api_chat(request, session_id):
     return response
 
 
+@login_required
+@require_GET
+def api_deepgram_token(request):
+    """Return the Deepgram API key for real-time streaming transcription."""
+    key = getattr(settings, 'DEEPGRAM_API_KEY', '')
+    if not key:
+        return JsonResponse({'error': 'DEEPGRAM_API_KEY not configured'}, status=503)
+    return JsonResponse({'key': key})
+
+
 @csrf_exempt
 @require_POST
 def api_transcribe(request, session_id):
