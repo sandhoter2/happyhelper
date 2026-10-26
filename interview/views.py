@@ -1069,36 +1069,30 @@ def api_delete_participant(request, session_id, participant_id):
 @csrf_exempt
 @require_POST
 def _vision_call(b64_image: str, mime: str, prompt: str, max_tokens: int = 600) -> str:
-    """Call a vision model with a base64 image. Priority: Gemini → OpenRouter → Groq.
-    All providers use the OpenAI-compatible API so no extra SDK is needed."""
+    """Call a vision model with a base64 image. Priority: Gemini → OpenRouter → Groq."""
+    import httpx
 
-    def _openai_vision(api_key, base_url, model):
-        client = openai_lib.OpenAI(api_key=api_key, base_url=base_url)
-        resp = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": [
-                {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64_image}"}},
-                {"type": "text", "text": prompt},
-            ]}],
-            max_tokens=max_tokens,
-        )
-        _m = resp.choices[0].message
-        return (_m.content or getattr(_m, "reasoning_content", None) or "").strip()
-
-    # ── 1. Google Gemini via OpenAI-compatible endpoint (free, best OCR) ─────
+    # ── 1. Google Gemini via native REST API ──────────────────────────────────
     google_key = getattr(settings, "GOOGLE_API_KEY", "")
     if google_key:
         try:
             model_name = getattr(settings, "GEMINI_VISION_MODEL", "gemini-2.0-flash")
-            return _openai_vision(
-                google_key,
-                "https://generativelanguage.googleapis.com/v1beta/openai/",
-                model_name,
-            )
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+            payload = {
+                "contents": [{"parts": [
+                    {"inline_data": {"mime_type": mime, "data": b64_image}},
+                    {"text": prompt},
+                ]}],
+                "generationConfig": {"maxOutputTokens": max_tokens},
+            }
+            r = httpx.post(url, params={"key": google_key}, json=payload, timeout=30)
+            r.raise_for_status()
+            data = r.json()
+            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
         except Exception as e:
             logger.warning("Gemini vision failed, trying next provider: %s", e)
 
-    # ── 2. OpenRouter or Groq fallback ────────────────────────────────────────
+    # ── 2. OpenRouter or Groq (OpenAI-compatible) ─────────────────────────────
     api_key = getattr(settings, "OPENROUTER_API_KEY", "") or getattr(settings, "GROQ_API_KEY", "")
     if not api_key:
         raise ValueError("No vision API key configured (GOOGLE_API_KEY, OPENROUTER_API_KEY, or GROQ_API_KEY)")
@@ -1109,7 +1103,17 @@ def _vision_call(b64_image: str, mime: str, prompt: str, max_tokens: int = 600) 
         else getattr(settings, "GROQ_VISION_MODEL", "llama-3.2-11b-vision-preview")
     )
     base_url = "https://openrouter.ai/api/v1" if use_openrouter else "https://api.groq.com/openai/v1"
-    return _openai_vision(api_key, base_url, vision_model)
+    client = openai_lib.OpenAI(api_key=api_key, base_url=base_url)
+    resp = client.chat.completions.create(
+        model=vision_model,
+        messages=[{"role": "user", "content": [
+            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64_image}"}},
+            {"type": "text", "text": prompt},
+        ]}],
+        max_tokens=max_tokens,
+    )
+    _m = resp.choices[0].message
+    return (_m.content or getattr(_m, "reasoning_content", None) or "").strip()
 
 
 def api_scan_participants(request, session_id):
