@@ -5604,17 +5604,17 @@ if (SESSION_TYPE === 'meeting') {
 
   // ── Screen OCR: share screen → AI extracts text → inject into question input ──
   window.captureScreenContext = async function captureScreenContext() {
+    // getDisplayMedia MUST be called first — before toast/button changes — or browsers silently block it
+    let display;
+    try {
+      display = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 1 }, audio: false });
+    } catch (e) {
+      if (e.name !== 'NotAllowedError') toast('Could not share screen: ' + e.message, 'error', 3000);
+      return;
+    }
     const btn = document.getElementById('fScreenOcrBtn');
     if (btn) { btn.style.opacity = '0.5'; btn.disabled = true; }
     try {
-      toast('Select the window or tab to capture, then it stops sharing automatically', 'info', 5000);
-      let display;
-      try {
-        display = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 1 }, audio: false });
-      } catch (e) {
-        toast(e.name === 'NotAllowedError' ? 'Screen share cancelled' : 'Could not share screen: ' + e.message, 'info', 3000);
-        return;
-      }
       const videoTrack = display.getVideoTracks()[0];
       let blob = null;
       try {
