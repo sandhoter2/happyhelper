@@ -3210,12 +3210,16 @@ function _startTVDeepgram(audioTracks, dgKey) {
   ws.onclose = () => {
     _tvDeepgramWS = null;
     if (theirVoiceActive) {
-      // Try to reconnect with Deepgram once, then fall back
       setTimeout(() => {
         if (!theirVoiceActive) return;
+        // Re-read live tracks in case the original array has stale references
+        const freshTracks = theirVoiceStream
+          ? theirVoiceStream.getAudioTracks().filter(t => t.readyState === 'live')
+          : [];
+        if (!freshTracks.length) { _startTVCaptions(); return; }
         fetch('/api/deepgram-token/', { headers: { 'X-CSRFToken': getCookie('csrftoken') } })
           .then(r => r.ok ? r.json() : Promise.reject())
-          .then(({ key }) => key ? _startTVDeepgram(audioTracks, key) : _tvAudioLoop())
+          .then(({ key }) => key ? _startTVDeepgram(freshTracks, key) : _tvAudioLoop())
           .catch(() => _tvAudioLoop());
       }, 1500);
     }

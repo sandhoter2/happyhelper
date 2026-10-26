@@ -21,7 +21,7 @@ from django.http import HttpResponse, HttpResponseForbidden, JsonResponse, Strea
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone as dj_timezone
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 
 from .forms import NewSessionForm, UserProfileForm
 from .models import AIMessage, DocumentFolder, DocumentParserConfig, InterviewSession, MeetingParticipant, SessionDocument, TranscriptEntry, UserDocument, UserProfile, PromptTemplate, QuestionBank
