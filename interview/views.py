@@ -783,6 +783,35 @@ def api_deepgram_token(request):
     return JsonResponse({'key': key})
 
 
+@login_required
+@require_POST
+def api_screen_ocr(request, session_id):
+    """OCR a screenshot and return the extracted text as context."""
+    import base64
+    if (r := _auth_required(request)): return r
+    session = get_object_or_404(InterviewSession, id=session_id, owner=request.user)
+
+    screenshot = request.FILES.get("screenshot")
+    if not screenshot:
+        return JsonResponse({"error": "No screenshot uploaded"}, status=400)
+
+    mime = screenshot.content_type or "image/png"
+    b64 = base64.b64encode(screenshot.read()).decode("utf-8")
+    prompt = (
+        "Extract ALL visible text from this screenshot exactly as it appears. "
+        "Preserve structure: headings, bullet points, code blocks, table rows. "
+        "Do NOT add commentary, labels, or markdown fences — output only the extracted text. "
+        "If the screen shows a question or problem, include it fully."
+    )
+    try:
+        text = _vision_call(b64, mime, prompt, max_tokens=1200)
+    except Exception as e:
+        logger.exception("screen_ocr vision error: %s", e)
+        return JsonResponse({"error": str(e)}, status=500)
+
+    return JsonResponse({"text": text.strip()})
+
+
 @csrf_exempt
 @require_POST
 def api_transcribe(request, session_id):

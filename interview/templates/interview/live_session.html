@@ -1631,6 +1631,9 @@ body.tc-select-mode .transcript-entry.selected::before, .transcript-entry.select
       </div>
     </div>
     <button class="fmic-btn" id="fMhBtn" onclick="toggleMHPanel()" title="Meeting helper: questions to ask, by role" aria-label="Meeting helper">{% include "interview/_icon.html" with name="bulb" %}</button>
+    <button class="fmic-btn" id="fScreenOcrBtn" onclick="captureScreenContext()" title="Share screen — AI reads and extracts text as context" aria-label="Screen capture">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+    </button>
     <input type="text" class="fq-input" id="fQuestionInput" aria-label="Question"
            placeholder="Type question or speak…"
            onkeydown="if(event.key==='Enter')triggerAI()">
@@ -5596,6 +5599,83 @@ if (SESSION_TYPE === 'meeting') {
       toast('Scan error: ' + e.message, 'error');
     } finally {
       if (btn) { btn.innerHTML = orig; btn.disabled = false; }
+    }
+  };
+
+  // ── Screen OCR: share screen → AI extracts text → inject into question input ──
+  window.captureScreenContext = async function captureScreenContext() {
+    const btn = document.getElementById('fScreenOcrBtn');
+    if (btn) { btn.style.opacity = '0.5'; btn.disabled = true; }
+    try {
+      toast('Select the window or tab to capture, then it stops sharing automatically', 'info', 5000);
+      let display;
+      try {
+        display = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 1 }, audio: false });
+      } catch (e) {
+        toast(e.name === 'NotAllowedError' ? 'Screen share cancelled' : 'Could not share screen: ' + e.message, 'info', 3000);
+        return;
+      }
+      const videoTrack = display.getVideoTracks()[0];
+      let blob = null;
+      try {
+        if (typeof ImageCapture !== 'undefined') {
+          const ic = new ImageCapture(videoTrack);
+          const bitmap = await ic.grabFrame();
+          const canvas = document.createElement('canvas');
+          canvas.width = bitmap.width; canvas.height = bitmap.height;
+          canvas.getContext('2d').drawImage(bitmap, 0, 0);
+          blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.92));
+        } else {
+          const video = document.createElement('video');
+          video.srcObject = new MediaStream([videoTrack]);
+          video.muted = true;
+          await video.play();
+          await new Promise(res => { video.onloadeddata = res; setTimeout(res, 1500); });
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth || 1280; canvas.height = video.videoHeight || 720;
+          canvas.getContext('2d').drawImage(video, 0, 0);
+          video.srcObject = null;
+          blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.92));
+        }
+      } finally {
+        display.getTracks().forEach(t => t.stop()); // stop share immediately
+      }
+      if (!blob) { toast('Could not capture frame — try again', 'warn'); return; }
+
+      // Downscale if >1 MB
+      if (blob.size > 1024 * 1024) {
+        const img = await createImageBitmap(blob);
+        const scale = Math.min(1, 1280 / img.width);
+        const c2 = document.createElement('canvas');
+        c2.width = Math.round(img.width * scale); c2.height = Math.round(img.height * scale);
+        c2.getContext('2d').drawImage(img, 0, 0, c2.width, c2.height);
+        blob = await new Promise(res => c2.toBlob(res, 'image/jpeg', 0.82)) || blob;
+      }
+
+      toast('Reading screen…', 'info', 8000);
+      const form = new FormData();
+      form.append('screenshot', blob, 'screen.jpg');
+      const resp = await fetch(`/api/session/${SESSION_ID}/screen-ocr/`, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': getCookie('csrftoken') },
+        body: form,
+      });
+      const data = await resp.json();
+      if (!resp.ok) { toast(data.error || 'OCR failed', 'error'); return; }
+      const text = (data.text || '').trim();
+      if (!text) { toast('No text found on screen', 'info'); return; }
+
+      // Inject into both question inputs and lock so voice doesn't overwrite
+      const qi  = document.getElementById('questionInput');
+      const fqi = document.getElementById('fQuestionInput');
+      if (qi)  qi.value  = text;
+      if (fqi) fqi.value = text;
+      if (typeof _tvInputLockUntil !== 'undefined') _tvInputLockUntil = Date.now() + 30000;
+      toast('Screen text extracted — hit Get Answer!', 'success', 4000);
+    } catch (e) {
+      toast('Screen capture error: ' + e.message, 'error');
+    } finally {
+      if (btn) { btn.style.opacity = ''; btn.disabled = false; }
     }
   };
 
