@@ -4207,6 +4207,9 @@ function clearInput() {
   if (fi) fi.value = '';
   micManualAccum = '';
   micLastCommitted = '';
+  // Reset Their Voice accumulation so the next chunk doesn't re-fill the box
+  if (typeof _tvAccumText !== 'undefined')    _tvAccumText    = '';
+  if (typeof _tvInputLockUntil !== 'undefined') _tvInputLockUntil = 0;
   if (interimEntry) interimEntry.style.display = 'none';
   if (interimText) interimText.textContent = 'Transcribing…';
   const qc = document.getElementById('qInputCount');
