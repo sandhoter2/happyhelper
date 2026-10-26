@@ -1068,8 +1068,52 @@ def api_delete_participant(request, session_id, participant_id):
 
 @csrf_exempt
 @require_POST
+def _vision_call(b64_image: str, mime: str, prompt: str, max_tokens: int = 600) -> str:
+    """Call a vision model with a base64 image. Priority: Gemini → OpenRouter → Groq."""
+    import base64 as _b64
+
+    # ── 1. Google Gemini (free tier, best OCR) ────────────────────────────────
+    google_key = getattr(settings, "GOOGLE_API_KEY", "")
+    if google_key:
+        try:
+            import google.generativeai as genai  # type: ignore
+            genai.configure(api_key=google_key)
+            model_name = getattr(settings, "GEMINI_VISION_MODEL", "gemini-2.0-flash")
+            model = genai.GenerativeModel(model_name)
+            img_bytes = _b64.b64decode(b64_image)
+            import PIL.Image, io
+            img = PIL.Image.open(io.BytesIO(img_bytes))
+            resp = model.generate_content([prompt, img])
+            return resp.text.strip()
+        except Exception as e:
+            logger.warning("Gemini vision failed, trying next provider: %s", e)
+
+    # ── 2. OpenRouter or Groq (OpenAI-compatible) ─────────────────────────────
+    api_key = getattr(settings, "OPENROUTER_API_KEY", "") or getattr(settings, "GROQ_API_KEY", "")
+    if not api_key:
+        raise ValueError("No vision API key configured (GOOGLE_API_KEY, OPENROUTER_API_KEY, or GROQ_API_KEY)")
+
+    use_openrouter = bool(getattr(settings, "OPENROUTER_API_KEY", ""))
+    vision_model = (
+        getattr(settings, "VISION_MODEL", "openai/gpt-4o-mini") if use_openrouter
+        else getattr(settings, "GROQ_VISION_MODEL", "llama-3.2-11b-vision-preview")
+    )
+    base_url = "https://openrouter.ai/api/v1" if use_openrouter else "https://api.groq.com/openai/v1"
+    client = openai_lib.OpenAI(api_key=api_key, base_url=base_url)
+    resp = client.chat.completions.create(
+        model=vision_model,
+        messages=[{"role": "user", "content": [
+            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64_image}"}},
+            {"type": "text", "text": prompt},
+        ]}],
+        max_tokens=max_tokens,
+    )
+    _m = resp.choices[0].message
+    return (_m.content or getattr(_m, "reasoning_content", None) or "").strip()
+
+
 def api_scan_participants(request, session_id):
-    """Receive a screenshot, call Groq vision to extract participant names."""
+    """Receive a screenshot, call vision API to extract participant names."""
     import base64, re
     if (r := _auth_required(request)): return r
     ext_token = request.headers.get('X-Ext-Token', '').strip()
@@ -1081,46 +1125,26 @@ def api_scan_participants(request, session_id):
     if not screenshot:
         return JsonResponse({"error": "No screenshot provided"}, status=400)
 
-    api_key = getattr(settings, "OPENROUTER_API_KEY", None) or getattr(settings, "GROQ_API_KEY", None)
-    if not api_key:
-        return JsonResponse({"error": "No vision API key configured"}, status=500)
-
-    use_openrouter = bool(getattr(settings, "OPENROUTER_API_KEY", None))
     mime = screenshot.content_type or "image/png"
     b64 = base64.b64encode(screenshot.read()).decode("utf-8")
-
-    vision_model = getattr(settings, "VISION_MODEL", "openai/gpt-4o-mini") if use_openrouter else getattr(settings, "GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
-    base_url = "https://openrouter.ai/api/v1" if use_openrouter else "https://api.groq.com/openai/v1"
+    prompt = (
+        "This is a screenshot of a Teams, Zoom, or Google Meet meeting. "
+        "Extract the following and return ONLY a JSON object (no markdown, no explanation):\n"
+        "1. \"names\": array of all participant/attendee names visible in the participants panel, video tiles, or attendee list\n"
+        "2. \"speakers\": array of names of people currently speaking or who have a speaking indicator\n"
+        "3. \"title\": the meeting title/subject shown at the top of the screen, or empty string if not visible\n"
+        "Example: {\"names\": [\"Alice\", \"Bob\"], \"speakers\": [\"Alice\"], \"title\": \"Sprint Planning\"}\n"
+        "If no data is visible for a field, use an empty array or empty string."
+    )
     try:
-        client = openai_lib.OpenAI(api_key=api_key, base_url=base_url)
-        resp = client.chat.completions.create(
-            model=vision_model,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
-                    {"type": "text", "text": (
-                        "This is a screenshot of a Teams, Zoom, or Google Meet meeting. "
-                        "Extract the following and return ONLY a JSON object (no markdown, no explanation):\n"
-                        "1. \"names\": array of all participant/attendee names visible in the participants panel, video tiles, or attendee list\n"
-                        "2. \"speakers\": array of names of people currently speaking or who have a speaking indicator\n"
-                        "3. \"title\": the meeting title/subject shown at the top of the screen, or empty string if not visible\n"
-                        "Example: {\"names\": [\"Alice\", \"Bob\"], \"speakers\": [\"Alice\"], \"title\": \"Sprint Planning\"}\n"
-                        "If no data is visible for a field, use an empty array or empty string."
-                    )},
-                ],
-            }],
-            max_tokens=600,
-        )
-        _m = resp.choices[0].message
-        content = (_m.content or getattr(_m, "reasoning_content", None) or "").strip()
+        content = _vision_call(b64, mime, prompt, max_tokens=600)
         match = re.search(r"\{.*\}", content, re.DOTALL)
         parsed = json.loads(match.group()) if match else {}
         names = [n for n in (parsed.get("names") or []) if isinstance(n, str) and n.strip()]
         speakers = [n for n in (parsed.get("speakers") or []) if isinstance(n, str) and n.strip()]
         title = str(parsed.get("title") or "").strip()
     except Exception as e:
-        logger.exception("scan_participants vision error (model=%s): %s", vision_model, e)
+        logger.exception("scan_participants vision error: %s", e)
         return JsonResponse({"error": str(e)}, status=500)
 
     return JsonResponse({"names": names, "speakers": speakers, "title": title})
@@ -1141,44 +1165,24 @@ def api_extract_captions(request, session_id):
     if not screenshot:
         return JsonResponse({"text": "", "speaker": ""})
 
-    api_key = getattr(settings, "OPENROUTER_API_KEY", None) or getattr(settings, "GROQ_API_KEY", None)
-    if not api_key:
-        return JsonResponse({"error": "No vision API key configured"}, status=500)
-
-    use_openrouter = bool(getattr(settings, "OPENROUTER_API_KEY", None))
     mime = screenshot.content_type or "image/png"
     b64 = base64.b64encode(screenshot.read()).decode("utf-8")
-
-    vision_model = getattr(settings, "VISION_MODEL", "openai/gpt-4o-mini") if use_openrouter else getattr(settings, "GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
-    base_url = "https://openrouter.ai/api/v1" if use_openrouter else "https://api.groq.com/openai/v1"
+    prompt = (
+        "This is a cropped screenshot showing the live caption/subtitle area of a Microsoft Teams, Zoom, or Google Meet call. "
+        "Extract ONLY the caption text that appears as subtitles or live captions on screen. "
+        "Also try to identify the speaker name if it is shown next to the caption. "
+        "Return ONLY a JSON object with no markdown: "
+        "{\"text\": \"the caption text here\", \"speaker\": \"speaker name or empty string\"}\n"
+        "If no caption text is visible, return {\"text\": \"\", \"speaker\": \"\"}."
+    )
     try:
-        client = openai_lib.OpenAI(api_key=api_key, base_url=base_url)
-        resp = client.chat.completions.create(
-            model=vision_model,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
-                    {"type": "text", "text": (
-                        "This is a cropped screenshot showing the live caption/subtitle area of a Microsoft Teams, Zoom, or Google Meet call. "
-                        "Extract ONLY the caption text that appears as subtitles or live captions on screen. "
-                        "Also try to identify the speaker name if it is shown next to the caption. "
-                        "Return ONLY a JSON object with no markdown: "
-                        "{\"text\": \"the caption text here\", \"speaker\": \"speaker name or empty string\"}\n"
-                        "If no caption text is visible, return {\"text\": \"\", \"speaker\": \"\"}."
-                    )},
-                ],
-            }],
-            max_tokens=300,
-        )
-        _m = resp.choices[0].message
-        content = (_m.content or getattr(_m, "reasoning_content", None) or "").strip()
+        content = _vision_call(b64, mime, prompt, max_tokens=300)
         match = re.search(r"\{.*\}", content, re.DOTALL)
         parsed = json.loads(match.group()) if match else {}
         text = str(parsed.get("text") or "").strip()
         speaker = str(parsed.get("speaker") or "").strip()
     except Exception as e:
-        logger.exception("extract_captions vision error (model=%s): %s", vision_model, e)
+        logger.exception("extract_captions vision error: %s", e)
         return JsonResponse({"error": str(e)}, status=500)
 
     # Saving is handled by the caller via /transcript/ — this endpoint only extracts.

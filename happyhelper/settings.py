@@ -157,11 +157,13 @@ CEREBRAS_MODEL = os.environ.get("CEREBRAS_MODEL", "qwen-3.8-27b")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
 GROQ_WHISPER_MODEL = os.environ.get("GROQ_WHISPER_MODEL", "whisper-large-v3-turbo")
-GROQ_VISION_MODEL = os.environ.get("GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
+GROQ_VISION_MODEL = os.environ.get("GROQ_VISION_MODEL", "llama-3.2-11b-vision-preview")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 VISION_MODEL = os.environ.get("VISION_MODEL", "openai/gpt-4o-mini")
 DEEPGRAM_API_KEY = os.environ.get("DEEPGRAM_API_KEY", "")
+GOOGLE_API_KEY   = os.environ.get("GOOGLE_API_KEY", "")
+GEMINI_VISION_MODEL = os.environ.get("GEMINI_VISION_MODEL", "gemini-2.0-flash")
 
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
