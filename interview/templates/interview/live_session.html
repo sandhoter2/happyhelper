@@ -3208,6 +3208,10 @@ function _startTVDeepgram(audioTracks, dgKey) {
         const panel = document.getElementById('transcriptPanel');
         if (panel && !_transcriptScrollLocked) panel.scrollTop = panel.scrollHeight;
       }
+      // Mirror interim words into the question input so user sees them in real time
+      const _interimFull = _tvAccumText ? _tvAccumText + ' ' + text : text;
+      _tvInputLockUntil = Date.now() + 10000;
+      setMicInputText(_interimFull);
     }
   };
 
