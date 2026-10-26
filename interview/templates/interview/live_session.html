@@ -2589,8 +2589,8 @@ let micLastCommitted = '';
 let micManualAccum = '';   // tracks committed finals in manual mode (not interim)
 let _tvInputLockUntil = 0; // mic interim won't overwrite question input while Their Voice holds it
 
-// Audio capture is always real-time (~3 s chunks regardless of mic mode badge).
-const _TV_CHUNK_MS = 3000;
+// Audio capture is always real-time (~1.5 s chunks regardless of mic mode badge).
+const _TV_CHUNK_MS = 1500;
 
 // Returns the AI submission interval in ms, driven by the mic mode badge.
 // 'manual' → never auto-trigger (returns Infinity); 'dynamic' → 8 s;
